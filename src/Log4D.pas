@@ -9,6 +9,8 @@ unit Log4D;
   Written by Keith Wood (kbwood@iprimus.com.au).
   Version 1.0 - 29 April 2001.
   Version 1.2 - 9 September 2003.
+  Version 1.3 - 24 July 2004.
+  
 }
 
 interface
@@ -16,7 +18,12 @@ interface
 {$I Defines.inc}
 
 uses
-  Classes, Windows,
+  Classes,
+{$IFDEF LINUX}
+  SyncObjs,
+{$ELSE}
+  Windows,
+{$ENDIF}
 {$IFDEF DELPHI5_UP}
   Contnrs,
 {$ENDIF}
@@ -89,6 +96,10 @@ type
 {$IFDEF DELPHI4}
   TClassList  = TList;
   TObjectList = TList;
+{$ENDIF}
+
+{$IFDEF LINUX}
+  TRTLCriticalSection = TCriticalSection;
 {$ENDIF}
 
   { Log-specific exceptions. }
@@ -920,6 +931,15 @@ function FindRenderer(const ClassName: string): ILogRenderer;
 
 { Convert string value to a Boolean, with default. }
 function StrToBool(Value: string; const Default: Boolean): Boolean;
+
+{$IFDEF LINUX}
+procedure EnterCriticalSection(var CS: TCriticalSection);
+procedure LeaveCriticalSection(var CS: TCriticalSection);
+procedure InitializeCriticalSection(var CS: TCriticalSection);
+procedure DeleteCriticalSection(var CS: TCriticalSection);
+function GetCurrentThreadID: Integer;
+procedure OutputDebugString(const S: PChar);
+{$ENDIF}
 
 var
   { Default implementation of ILogLoggerFactory }
@@ -3597,6 +3617,39 @@ begin
     RendererNames, RendererClasses) as ILogRenderer;
 end;
 
+{$IFDEF LINUX}
+procedure EnterCriticalSection(var CS: TCriticalSection);
+begin
+  CS.Enter;
+end;
+
+procedure LeaveCriticalSection(var CS: TCriticalSection);
+begin
+  CS.Leave;
+end;
+
+procedure InitializeCriticalSection(var CS: TCriticalSection);
+begin
+  CS := TCriticalSection.Create;
+end;
+
+procedure DeleteCriticalSection(var CS: TCriticalSection);
+begin
+  CS.Free;
+end;
+
+function GetCurrentThreadID: Integer;
+begin
+  Result := 0;
+end;
+
+procedure OutputDebugString(const S: PChar);
+begin
+  WriteLn(Trim(string(S)));
+end;
+
+{$ENDIF}
+
 var
   Index: Integer;
 initialization
@@ -3687,4 +3740,5 @@ finalization
   LogLog.Free;
   { Synchronisation. }
   DeleteCriticalSection(CriticalNDC);
+
 end.
