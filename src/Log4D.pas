@@ -4,72 +4,65 @@ unit Log4D;
   Logging for Delphi.
   Based on log4j Java package from Apache
   (http://jakarta.apache.org/log4j/docs/index.html).
+  Currently based on log4j 1.2.8.
 
-  Written by Keith Wood (kbwood@compuserve.com).
+  Written by Keith Wood (kbwood@iprimus.com.au).
   Version 1.0 - 29 April 2001.
+  Version 1.2 - 9 September 2003.
 }
 
 interface
 
+{$I Defines.inc}
+
 uses
-  Classes, Windows,                
-{$IFNDEF VER120}  { Not Delphi 4 }
+  Classes, Windows,
+{$IFDEF DELPHI5_UP}
   Contnrs,
 {$ENDIF}
   SysUtils;
 
 const
+  Log4DVersion = '1.2';
+
   { Default pattern string for log output.
     Shows the application supplied message. }
   DefaultPattern = '%m%n';
   { A conversion pattern equivalent to the TTCC layout.
-    Shows runtime, thread, priority, category, NDC, and message. }
+    Shows runtime, thread, level, logger, NDC, and message. }
   TTCCPattern    = '%r [%t] %p %c %x - %m%n';
 
   { Common prefix for option names in an initialisation file.
     Note that the search for all option names is case sensitive. }
-  KeyPrefix          = 'log4d';
-  { Specify the additivity of a category's appenders. }
-  AdditiveKey        = KeyPrefix + '.additive.';
+  KeyPrefix        = 'log4d';
+  { Specify the additivity of a logger's appenders. }
+  AdditiveKey      = KeyPrefix + '.additive.';
   { Define a named appender. }
-  AppenderKey        = KeyPrefix + '.appender.';
-  { Nominate a factory to use to generate categories.
-    This factory must have been registered with RegisterCategoryFactory.
+  AppenderKey      = KeyPrefix + '.appender.';
+  { Nominate a factory to use to generate loggers.
+    This factory must have been registered with RegisterLoggerFactory.
     If none is specified, then the default factory is used. }
-  CategoryFactoryKey = KeyPrefix + '.categoryFactory';
-  { Define a new category, and set its logging level and appenders. }
-  CategoryKey        = KeyPrefix + '.category.';
+  LoggerFactoryKey = KeyPrefix + '.loggerFactory';
+  { Define a new logger, and set its logging level and appenders. }
+  LoggerKey        = KeyPrefix + '.logger.';
   { Defining this value as true makes log4d print internal debug
     statements to debug output. }
-  DebugKey           = KeyPrefix + '.debug';
-  { Setting this property to DEBUG, INFO, WARN, ERROR or FATAL is equivalent
-    to calling the TLogHierarchy.Disable method with the corresponding priority.
-    This globally disables that level (and below) of logging.
-
-    If both log4d.disableOverride and a log4d.disable options are present, then
-    log4d.disableOverride, as the name indicates, overrides any former options. }
-  DisableKey         = KeyPrefix + '.disable';
-  { Setting this property to 'true' overrides the effects of all methods
-    TLogHierarchy.Disable, TLogHierarchy.DisableAll, TLogHierarchy.DisableDebug
-    and TLogHierarchy.DisableInfo. Thus enabling normal evaluation of logging
-    requests, i.e. according to the Basic Selection Rule.
-
-    If both log4d.disableOverride and a log4d.disable options are present, then
-    log4d.disableOverride, as the name indicates, overrides any former options. }
-  DisableOverrideKey = KeyPrefix + '.disableOverride';
+  DebugKey         = KeyPrefix + '.configDebug';
   { Specify the error handler to be used with an appender. }
-  ErrorHandlerKey    = '.errorHandler';
+  ErrorHandlerKey  = '.errorHandler';
   { Specify the filters to be used with an appender. }
-  FilterKey          = '.filter';
+  FilterKey        = '.filter';
   { Specify the layout to be used with an appender. }
-  LayoutKey          = '.layout';
+  LayoutKey        = '.layout';
   { Associate an object renderer with the class to be rendered. }
-  RendererKey        = KeyPrefix + '.renderer.';
+  RendererKey      = KeyPrefix + '.renderer.';
   { Set the logging level and appenders for the root. }
-  RootCategoryKey    = KeyPrefix + '.rootCategory';
+  RootLoggerKey    = KeyPrefix + '.rootLogger';
+  { Set the overall logging level. }
+  ThresholdKey     = KeyPrefix + '.threshold';
 
-  { Special priority value signifying inherited behaviour. }
-  InheritedPriority  = 'INHERITED';
+  { Special level value signifying inherited behaviour. }
+  InheritedLevel = 'inherited';
 
   { Accept option for TLog*Filter. }
   AcceptMatchOpt = 'acceptOnMatch';
@@ -79,13 +72,21 @@ const
   DateFormatOpt  = 'dateFormat';
   { File name option for TLogFileAppender. }
   FileNameOpt    = 'fileName';
-  { Match string option for TLog*Filter. }
+  { Case-sensitivity option for TLogStringFilter. }
+  IgnoreCaseOpt  = 'ignoreCase';
+  { Match string option for TLogLevelMatchFilter and TLogStringFilter. }
   MatchOpt       = 'match';
+  { Maximum string option for TLogLevelRangeFilter. }
+  MaxOpt         = 'maximum';
+  { Minimum string option for TLogLevelRangeFilter. }
+  MinOpt         = 'minimum';
   { Pattern option for TLogPatternLayout. }
   PatternOpt     = 'pattern';
+  { Title option for TLogHTMLLayout. }
+  TitleOpt       = 'title';
 
 type
-{$IFDEF VER120}  { Delphi 4 }
+{$IFDEF DELPHI4}
   TClassList  = TList;
   TObjectList = TList;
 {$ENDIF}
@@ -121,179 +122,227 @@ type
     procedure Init; virtual;
   end;
 
-{ Priorities ------------------------------------------------------------------}
+{ Levels ----------------------------------------------------------------------}
 
   { Levels of messages for logging.
     The Level property identifies increasing severity of messages.
     All those above or equal to a particular setting are logged. }
-  TLogPriority = class(TObject)
+  TLogLevel = class(TObject)
   private
     FLevel: Integer;
     FName: string;
-  public
+  protected
     constructor Create(Name: string; Level: Integer);
+  public
     property Level: Integer read FLevel;
     property Name: string read FName;
-    function IsGreaterOrEqual(Priority: TLogPriority): Boolean;
+    function IsGreaterOrEqual(LogLevel: TLogLevel): Boolean;
+    { Retrieve a level object given its level. }
+    class function GetLevel(LogLevel: Integer): TLogLevel; overload;
+    { Retrieve a level object given its level, or default if not valid. }
+    class function GetLevel(LogLevel: Integer; DefaultLevel: TLogLevel): TLogLevel;
+      overload;
+    { Retrieve a level object given its name. }
+    class function GetLevel(Name: string): TLogLevel; overload;
+    { Retrieve a level object given its name, or default if not valid. }
+    class function GetLevel(Name: string; DefaultLevel: TLogLevel): TLogLevel;
+      overload;
   end;
 
+const
+  { Levels of logging as integer values. }
+  OffValue   = High(Integer);
+  FatalValue = 50000;
+  ErrorValue = 40000;
+  WarnValue  = 30000;
+  InfoValue  = 20000;
+  DebugValue = 10000;
+  AllValue   = Low(Integer);
+
 var
-  { Standard priorities are automatically created (in increasing severity):
-    Debug, Info, Warn, Error, Fatal. }
-  Debug: TLogPriority;
-  Info:  TLogPriority;
-  Warn:  TLogPriority;
-  Error: TLogPriority;
-  Fatal: TLogPriority;
-
-{ Return a list of all the priorities defined. }
-function GetAllPriorities: TObjectList;
-
-{ Retrieve a priority object given its level. }
-function GetPriority(Level: Integer): TLogPriority; overload;
-{ Retrieve a priority object given its name. }
-function GetPriority(Name: string): TLogPriority; overload;
+  { Standard levels are automatically created (in decreasing severity):
+    Off, Fatal, Error, Warn, Info, Debug, All. }
+  Off:   TLogLevel;
+  Fatal: TLogLevel;
+  Error: TLogLevel;
+  Warn:  TLogLevel;
+  Info:  TLogLevel;
+  Debug: TLogLevel;
+  All:   TLogLevel;
 
 { NDC -------------------------------------------------------------------------}
 
 type
   { Keep track of the nested diagnostic context (NDC). }
   TLogNDC = class(TObject)
+  private
+    class function GetNDCIndex: Integer;
+    class function GetThreadId: string;
   public
     class procedure Clear;
-    class function Context: string;
-    class procedure Pop;
-    class procedure Push(Context: string);
+    class procedure CloneStack(const Context: TStringList);
+    class function GetDepth: Integer;
+    class procedure Inherit(const Context: TStringList);
+    class function Peek: string;
+    class function Pop: string;
+    class procedure Push(const Context: string);
+    class procedure Remove;
+    class procedure SetMaxDepth(const MaxDepth: Integer);
   end;
 
 { Events ----------------------------------------------------------------------}
 
-  TLogCategory = class;
+  TLogLogger = class;
 
   { An event to be logged. }
-  TLogEvent = class(TObject)
+  TLogEvent = class(TPersistent)
   private
-    FCategory: TLogCategory;
     FError: Exception;
+    FLevel: TLogLevel;
+    FLogger: TLogLogger;
     FMessage: string;
-    FPriority: TLogPriority;
     FTimeStamp: TDateTime;
     function GetElapsedTime: LongInt;
+    function GetErrorClass: string;
     function GetErrorMessage: string;
+    function GetLoggerName: string;
     function GetNDC: string;
     function GetThreadId: LongInt;
   public
-    constructor Create(Category: TLogCategory; Priority: TLogPriority;
-      Message: string; Err: Exception); overload;
-    constructor Create(Category: TLogCategory; Priority: TLogPriority;
-      Message: TObject; Err: Exception); overload;
-    property Category: TLogCategory read FCategory;
+    constructor Create(const Logger: TLogLogger;
+      const Level: TLogLevel; const Message: string;
+      const Err: Exception; const TimeStamp: TDateTime = 0); overload;
+    constructor Create(const Logger: TLogLogger;
+      const Level: TLogLevel; const Message: TObject;
+      const Err: Exception; const TimeStamp: TDateTime = 0); overload;
     property ElapsedTime: LongInt read GetElapsedTime;
     property Error: Exception read FError;
+    property ErrorClass: string read GetErrorClass;
     property ErrorMessage: string read GetErrorMessage;
+    property Level: TLogLevel read FLevel;
+    property LoggerName: string read GetLoggerName;
     property Message: string read FMessage;
     property NDC: string read GetNDC;
-    property Priority: TLogPriority read FPriority;
     property ThreadId: LongInt read GetThreadId;
     property TimeStamp: TDateTime read FTimeStamp;
   end;
 
-{ Category factory ------------------------------------------------------------}
+{ Logger factory --------------------------------------------------------------}
 
-  { Factory for creating categories. }
-  ILogCategoryFactory = interface(IUnknown)
-    ['{3B9A05AF-91F7-450D-9942-B8393ED1D52D}']
-    function MakeNewCategoryInstance(Name: string): TLogCategory;
+  { Factory for creating loggers. }
+  ILogLoggerFactory = interface(IUnknown)
+    ['{AEE5E86C-B708-45B2-BEAD-B370D71CAA2F}']
+    function MakeNewLoggerInstance(const Name: string): TLogLogger;
   end;
 
-  { Default implementation of a category factory. }
-  TLogDefaultCategoryFactory = class(TInterfacedObject, ILogCategoryFactory)
+  { Default implementation of a logger factory. }
+  TLogDefaultLoggerFactory = class(TInterfacedObject, ILogLoggerFactory)
   public
-    function MakeNewCategoryInstance(Name: string): TLogCategory;
+    function MakeNewLoggerInstance(const Name: string): TLogLogger;
   end;
 
-{ Categories ------------------------------------------------------------------}
+{ Loggers ---------------------------------------------------------------------}
 
   ILogAppender = interface;
   ILogRenderer = interface;
   TLogHierarchy = class;
 
   { This is the central class in the Log4D package. One of the distinctive
-    features of Log4D is hierarchical categories and their evaluation. }
-  TLogCategory = class(TLogOptionHandler, ILogOptionHandler)
+    features of Log4D is hierarchical loggers and their evaluation. }
+  TLogLogger = class(TLogOptionHandler, ILogOptionHandler)
   private
     FAdditive: Boolean;
     FAppenders: TInterfaceList;
     FHierarchy: TLogHierarchy;
+    FLevel: TLogLevel;
     FName: string;
-    FParent: TLogCategory;
-    FPriority: TLogPriority;
+    FParent: TLogLogger;
   protected
-    FCriticalCategory: TRTLCriticalSection;
-    procedure CallAppenders(Event: TLogEvent);
+    FCriticalLogger: TRTLCriticalSection;
+    procedure CallAppenders(const Event: TLogEvent);
     procedure CloseAllAppenders;
     function CountAppenders: Integer;
-    procedure DoLog(Priority: TLogPriority; Message: string; Err: Exception);
-      overload; virtual;
-    procedure DoLog(Priority: TLogPriority; Message: TObject; Err: Exception);
-      overload; virtual;
-    function GetPriority: TLogPriority; virtual;
+    procedure DoLog(const LogLevel: TLogLevel; const Message: string;
+      const Err: Exception = nil); overload; virtual;
+    procedure DoLog(const LogLevel: TLogLevel; const Message: TObject;
+      const Err: Exception = nil); overload; virtual;
+    function GetLevel: TLogLevel; virtual;
   public
-    constructor Create(Name: string); reintroduce;
+    constructor Create(const Name: string); reintroduce;
     destructor Destroy; override;
     property Additive: Boolean read FAdditive write FAdditive;
     property Appenders: TInterfaceList read FAppenders;
     property Hierarchy: TLogHierarchy read FHierarchy write FHierarchy;
+    property Level: TLogLevel read GetLevel write FLevel;
     property Name: string read FName;
-    property Parent: TLogCategory read FParent;
-    property Priority: TLogPriority read GetPriority write FPriority;
-    procedure AddAppender(Appender: ILogAppender);
-    procedure Debug(Message: string; Err: Exception = nil); overload; virtual;
-    procedure Debug(Message: TObject; Err: Exception = nil); overload; virtual;
-    procedure Error(Message: string; Err: Exception = nil); overload; virtual;
-    procedure Error(Message: TObject; Err: Exception = nil); overload; virtual;
-    procedure Fatal(Message: string; Err: Exception = nil); overload; virtual;
-    procedure Fatal(Message: TObject; Err: Exception = nil); overload; virtual;
-    class function GetInstance(Name: string;
-      Factory: ILogCategoryFactory = nil): TLogCategory;
-    procedure Info(Message: string; Err: Exception = nil); overload; virtual;
-    procedure Info(Message: TObject; Err: Exception = nil); overload; virtual;
+    property Parent: TLogLogger read FParent;
+    procedure AddAppender(const Appender: ILogAppender);
+    procedure AssertLog(const Assertion: Boolean; const Message: string);
+      overload;
+    procedure AssertLog(const Assertion: Boolean; const Message: TObject);
+      overload;
+    procedure Debug(const Message: string; const Err: Exception = nil);
+      overload; virtual;
+    procedure Debug(const Message: TObject; const Err: Exception = nil);
+      overload; virtual;
+    procedure Error(const Message: string; const Err: Exception = nil);
+      overload; virtual;
+    procedure Error(const Message: TObject; const Err: Exception = nil);
+      overload; virtual;
+    procedure Fatal(const Message: string; const Err: Exception = nil);
+      overload; virtual;
+    procedure Fatal(const Message: TObject; const Err: Exception = nil);
+      overload; virtual;
+    function GetAppender(const Name: string): ILogAppender;
+    class function GetLogger(const Clazz: TClass;
+      const Factory: ILogLoggerFactory = nil): TLogLogger; overload;
+    class function GetLogger(const Name: string;
+      const Factory: ILogLoggerFactory = nil): TLogLogger; overload;
+    class function GetRootLogger: TLogLogger;
+    procedure Info(const Message: string; const Err: Exception = nil);
+      overload; virtual;
+    procedure Info(const Message: TObject; const Err: Exception = nil);
+      overload; virtual;
+    function IsAppender(const Appender: ILogAppender): Boolean;
     function IsDebugEnabled: Boolean;
+    function IsEnabledFor(const LogLevel: TLogLevel): Boolean;
     function IsErrorEnabled: Boolean;
     function IsFatalEnabled: Boolean;
     function IsInfoEnabled: Boolean;
-    function IsPriorityEnabled(Priority: TLogPriority): Boolean;
     function IsWarnEnabled: Boolean;
-    procedure LockCategory;
-    procedure Log(Priority: TLogPriority; Message: string;
-      Err: Exception = nil); overload;
-    procedure Log(Priority: TLogPriority; Message: TObject;
-      Err: Exception = nil); overload;
+    procedure LockLogger;
+    procedure Log(const LogLevel: TLogLevel; const Message: string;
+      const Err: Exception = nil); overload;
+    procedure Log(const LogLevel: TLogLevel; const Message: TObject;
+      const Err: Exception = nil); overload;
     procedure RemoveAllAppenders;
-    procedure RemoveAppender(Appender: ILogAppender);
-    procedure UnlockCategory;
-    procedure Warn(Message: string; Err: Exception = nil); overload; virtual;
-    procedure Warn(Message: TObject; Err: Exception = nil); overload; virtual;
+    procedure RemoveAppender(const Appender: ILogAppender); overload;
+    procedure RemoveAppender(const Name: string); overload;
+    procedure UnlockLogger;
+    procedure Warn(const Message: string; const Err: Exception = nil);
+      overload; virtual;
+    procedure Warn(const Message: TObject; const Err: Exception = nil);
+      overload; virtual;
   end;
 
-  { The specialised root category - cannot have a nil priority. }
-  TLogRoot = class(TLogCategory)
+  { The specialised root logger - cannot have a nil level. }
+  TLogRoot = class(TLogLogger)
   private
-    procedure SetPriority(Priority: TLogPriority);
+    procedure SetLevel(const Level: TLogLevel);
   public
-    constructor Create(Priority: TLogPriority);
-    property Priority: TLogPriority read GetPriority write SetPriority;
+    constructor Create(const Level: TLogLevel);
+    property Level: TLogLevel read GetLevel write SetLevel;
   end;
 
-  { Specialised category for internal logging. }
-  TLogLog = class(TLogCategory)
+  { Specialised logger for internal logging. }
+  TLogLog = class(TLogLogger)
   private
     FInternalDebugging: Boolean;
   protected
-    procedure DoLog(Priority: TLogPriority; Message: string; Err: Exception);
-      override;
-    procedure DoLog(Priority: TLogPriority; Message: TObject; Err: Exception);
-      override;
+    procedure DoLog(const LogLevel: TLogLevel; const Message: string;
+      const Err: Exception); override;
+    procedure DoLog(const LogLevel: TLogLevel; const Message: TObject;
+      const Err: Exception); override;
   public
     constructor Create;
     property InternalDebugging: Boolean read FInternalDebugging
@@ -302,48 +351,63 @@ type
 
 { Hierarchy -------------------------------------------------------------------}
 
-  { This class is specialized in retreiving categories by name and
-    also maintaining the category hierarchy.
+  { Listen to events occuring within a hierarchy. }
+  ILogHierarchyEventListener = interface
+    ['{A216D50F-B9A5-4871-8EE3-CB55C41E138B}']
+    procedure AddAppenderEvent(const Logger: TLogLogger;
+      const Appender: ILogAppender);
+    procedure RemoveAppenderEvent(const Logger: TLogLogger;
+      const Appender: ILogAppender);
+  end;
+
+  { This class is specialised in retreiving loggers by name and
+    also maintaining the logger hierarchy.
 
     The casual user should not have to deal with this class directly.
 
-    The structure of the category hierachy is maintained by the GetInstance
+    The structure of the logger hierachy is maintained by the GetInstance
     method. The hierarchy is such that children link to their parent but
-    parents do not have any pointers to their children. Moreover, categories
-    can be instantiated in any order, in particular decendant before ancestor.
+    parents do not have any pointers to their children. Moreover, loggers
+    can be instantiated in any order, in particular descendant before ancestor.
 
-    In case a decendant is created before a particular ancestor, then it creates
-    an empty node for the ancestor and adds itself to it. Other decendants
+    In case a descendant is created before a particular ancestor, then it creates
+    an empty node for the ancestor and adds itself to it. Other descendants
     of the same ancestor add themselves to the previously created node. }
   TLogHierarchy = class(TObject)
   private
-    FCategories: TStringList;
-    FDisable: Integer;
+    FEmittedNoAppenderWarning: Boolean;
+    FListeners: TInterfaceList;
+    FLoggers: TStringList;
     FRenderedClasses: TClassList;
     FRenderers: TInterfaceList;
-    FRoot: TLogCategory;
-    procedure UpdateParent(Cat: TLogCategory);
+    FRoot: TLogLogger;
+    FThreshold: TLogLevel;
+    procedure SetThreshold(const Level: TLogLevel); overload;
+    procedure UpdateParent(const Logger: TLogLogger);
   protected
     FCriticalHierarchy: TRTLCriticalSection;
   public
-    constructor Create(Root: TLogCategory);
+    constructor Create(Root: TLogLogger);
     destructor Destroy; override;
-    property Root: TLogCategory read FRoot;
+    property Root: TLogLogger read FRoot;
+    property Threshold: TLogLevel read FThreshold write SetThreshold;
+    procedure AddHierarchyEventListener(
+      const Listener: ILogHierarchyEventListener);
     procedure AddRenderer(RenderedClass: TClass; Renderer: ILogRenderer);
     procedure Clear;
-    procedure Disable(Priority: TLogPriority);
-    procedure DisableAll;
-    procedure DisableDebug;
-    procedure DisableInfo;
-    procedure EnableAll;
-    function Exists(Name: string): TLogCategory;
-    procedure GetCurrentCategories(List: TStringList);
-    function GetInstance(Name: string; Factory: ILogCategoryFactory = nil):
-      TLogCategory;
-    function GetRenderer(RenderedClass: TClass): ILogRenderer;
-    function IsDisabled(Level: Integer): Boolean;
-    procedure OverrideDisable;
+    procedure EmitNoAppenderWarning(const Logger: TLogLogger);
+    function Exists(const Name: string): TLogLogger;
+    procedure FireAppenderEvent(const Adding: Boolean; const Logger: TLogLogger;
+      const Appender: ILogAppender);
+    procedure GetCurrentLoggers(const List: TStringList);
+    function GetLogger(const Name: string;
+      const Factory: ILogLoggerFactory = nil): TLogLogger;
+    function GetRenderer(const RenderedClass: TClass): ILogRenderer;
+    function IsDisabled(const LogLevel: Integer): Boolean;
+    procedure RemoveHierarchyEventListener(
+      const Listener: ILogHierarchyEventListener);
     procedure ResetConfiguration;
+    procedure SetThreshold(const Name: string); overload;
     procedure Shutdown;
   end;
 
@@ -352,7 +416,7 @@ type
   { Functional requirements for a layout. }
   ILogLayout = interface(ILogOptionHandler)
     ['{87FDD680-96D7-45A0-A135-CB88ABAD5519}']
-    function Format(Event: TLogEvent): string;
+    function Format(const Event: TLogEvent): string;
     function GetContentType: string;
     function GetFooter: string;
     function GetHeader: string;
@@ -363,7 +427,14 @@ type
   end;
 
   { Abstract base for layouts.
-    Subclasses must at least override Format. }
+    Subclasses must at least override Format.
+
+    Accepts the following options:
+
+    # Format for date and time stamps, string, optional, defaults to ShortDateFormat
+    # See FormatDateTime function for more details
+    log4d.appender.<name>.layout.dateFormat=yyyy/mm/dd hh:nn:ss.zzz
+  }
   TLogCustomLayout = class(TLogOptionHandler, ILogDynamicCreate,
     ILogOptionHandler, ILogLayout)
   private
@@ -378,7 +449,7 @@ type
     property ContentType: string read GetContentType;
     property Footer: string read GetFooter;
     property Header: string read GetHeader;
-    function Format(Event: TLogEvent): string; virtual; abstract;
+    function Format(const Event: TLogEvent): string; virtual; abstract;
     function IgnoresException: Boolean; virtual;
     procedure Init; override;
   end;
@@ -386,33 +457,50 @@ type
   { Basic implementation of a layout. }
   TLogSimpleLayout = class(TLogCustomLayout)
   public
-    function Format(Event: TLogEvent): string; override;
+    function Format(const Event: TLogEvent): string; override;
   end;
 
-  { This layout outputs events in a HTML table. }
+  { This layout outputs events in a HTML table.
+
+    Accepts the following options:
+
+    # Title for HTML page, string, optional
+    log4d.appender.<name>.layout.title=Logging Messages
+  }
   TLogHTMLLayout = class(TLogCustomLayout)
+  private
+    FTitle: string;
   protected
     function GetContentType: string; override;
     function GetFooter: string; override;
     function GetHeader: string; override;
+    procedure SetOption(const Name, Value: string); override;
   public
-    function Format(Event: TLogEvent): string; override;
+    property Title: string read FTitle write FTitle;
+    function Format(const Event: TLogEvent): string; override;
     function IgnoresException: Boolean; override;
   end;
 
-  { Layout based on specified pattern. }
+  { Layout based on specified pattern.
+
+    Accepts the following options:
+
+    # Format for rendering the log event, string, optional, defaults to %m%n
+    # See comments of Format method for more details
+    log4d.appender.<name>.layout.pattern=%r [%t] %p %c %x - %m%n
+  }
   TLogPatternLayout = class(TLogCustomLayout)
   private
     FPattern: string;
     FPatternParts: TStringList;
-    procedure SetPattern(Pattern: string);
+    procedure SetPattern(const Pattern: string);
   protected
     procedure SetOption(const Name, Value: string); override;
   public
-    constructor Create(Pattern: string = DefaultPattern); reintroduce;
+    constructor Create(const Pattern: string = DefaultPattern); reintroduce;
     destructor Destroy; override;
     property Pattern: string read FPattern write SetPattern;
-    function Format(Event: TLogEvent): string; override;
+    function Format(const Event: TLogEvent): string; override;
     procedure Init; override;
   end;
 
@@ -421,7 +509,7 @@ type
   { Renderers transform an object into a string message for display. }
   ILogRenderer = interface(ILogOptionHandler)
     ['{169B03C6-E2C7-4F62-AD19-17408AB30681}']
-    function Render(Message: TObject): string;
+    function Render(const Message: TObject): string;
   end;
 
   { Abstract base class for renderers - handles basic option setting.
@@ -429,7 +517,7 @@ type
   TLogCustomRenderer = class(TLogOptionHandler, ILogDynamicCreate,
     ILogOptionHandler, ILogRenderer)
   public
-    function Render(Message: TObject): string; virtual; abstract;
+    function Render(const Message: TObject): string; virtual; abstract;
   end;
 
 { ErrorHandler ----------------------------------------------------------------}
@@ -439,23 +527,59 @@ type
     Error handling is a particularly tedious to get right because by
     definition errors are hard to predict and to reproduce. }
   ILogErrorHandler = interface(ILogOptionHandler)
-    ['{8C82B343-3AD5-4188-A385-DA424BC75BC0}']
+    ['{B902C52A-5E4E-47A8-B291-BE8E7660F754}']
+    procedure SetAppender(const Appender: ILogAppender);
+    procedure SetBackupAppender(const BackupAppender: ILogAppender);
+    procedure SetLogger(const Logger: TLogLogger);
+    { The appender for which errors are handled. }
+    property Appender: ILogAppender write SetAppender;
+    { The appender to use in case of failure. }
+    property BackupAppender: ILogAppender write SetBackupAppender;
+    { The logger that the failing appender might be attached to. }
+    property Logger: TLogLogger write SetLogger;
     { This method prints the error message passed as a parameter. }
-    procedure Error(Message: string); overload;
+    procedure Error(const Message: string); overload;
     { This method should handle the error. Information about the error
       condition is passed a parameter. }
-    procedure Error(Message: string; Err: Exception; ErrorCode: Integer);
-      overload;
+    procedure Error(const Message: string; const Err: Exception;
+      const ErrorCode: Integer; const Event: TLogEvent = nil); overload;
   end;
 
   { Abstract base class for error handlers - handles basic option setting.
     Subclasses must at least override Error. }
   TLogCustomErrorHandler = class(TLogOptionHandler, ILogDynamicCreate,
     ILogOptionHandler, ILogErrorHandler)
+  private
+    FAppender: ILogAppender;
+    FBackupAppender: ILogAppender;
+    FLogger: TLogLogger;
+  protected
+    procedure SetAppender(const Appender: ILogAppender); virtual;
+    procedure SetBackupAppender(const BackupAppender: ILogAppender); virtual;
+    procedure SetLogger(const Logger: TLogLogger); virtual;
   public
-    procedure Error(Message: string); overload; virtual; abstract;
-    procedure Error(Message: string; Err: Exception; ErrorCode: Integer);
-      overload; virtual; abstract;
+    property Appender: ILogAppender write SetAppender;
+    property BackupAppender: ILogAppender write SetBackupAppender;
+    property Logger: TLogLogger write SetLogger;
+    procedure Error(const Message: string); overload; virtual; abstract;
+    procedure Error(const Message: string; const Err: Exception;
+      const ErrorCode: Integer; const Event: TLogEvent = nil); overload;
+      virtual; abstract;
+  end;
+
+  { Fallback on an alternative appender if an error arises. }
+  TLogFallbackErrorHandler = class(TLogCustomErrorHandler)
+  private
+    FLoggers: TObjectList;
+  protected
+    procedure SetLogger(const Logger: TLogLogger); override;
+  public
+    constructor Create; override;
+    destructor Destroy; override;
+    procedure Error(const Message: string); overload; override;
+    procedure Error(const Message: string; const Err: Exception;
+      const ErrorCode: Integer; const Event: TLogEvent = nil); overload;
+      override;
   end;
 
   { Displays only the first error sent to it to debugging output. }
@@ -463,9 +587,10 @@ type
   private
     FSeenError: Boolean;
   public
-    procedure Error(Message: string); overload; override;
-    procedure Error(Message: string; Err: Exception; ErrorCode: Integer);
-      overload; override;
+    procedure Error(const Message: string); overload; override;
+    procedure Error(const Message: string; const Err: Exception;
+      const ErrorCode: Integer; const Event: TLogEvent = nil); overload;
+      override;
   end;
 
 { Filters ---------------------------------------------------------------------}
@@ -475,11 +600,19 @@ type
   { Filters can control to a finer degree of detail which messages get logged. }
   ILogFilter = interface(ILogOptionHandler)
     ['{B28213D7-ACE2-4C44-B820-D9437D44F8DA}']
-    function Decide(Event: TLogEvent): TLogFilterDecision;
+    function Decide(const Event: TLogEvent): TLogFilterDecision;
   end;
 
   { Abstract base class for filters - handles basic option setting.
-    Subclasses must at least override Decide. }
+    Subclasses must at least override Decide.
+
+    Accepts the following options:
+
+    # Class identification
+    log4d.appender.<name>.filter1=TLogCustomFilter
+    # Accept or reject the log event when deciding, Boolean, optional, default true
+    log4d.appender.<name>.filter1.acceptOnMatch=true
+  }
   TLogCustomFilter = class(TLogOptionHandler, ILogDynamicCreate,
     ILogOptionHandler, ILogFilter)
   private
@@ -488,35 +621,90 @@ type
     property AcceptOnMatch: Boolean read FAcceptOnMatch write FAcceptOnMatch;
     procedure SetOption(const Name, Value: string); override;
   public
-    function Decide(Event: TLogEvent): TLogFilterDecision; virtual; abstract;
+    constructor Create(const AcceptOnMatch: Boolean = True); reintroduce;
+    function Decide(const Event: TLogEvent): TLogFilterDecision; virtual;
+      abstract;
   end;
 
-  { Filter by the message's priority. }
-  TLogPriorityFilter = class(TLogCustomFilter)
+  { Deny all messages. }
+  TLogDenyAllFilter = class(TLogCustomFilter)
+  public
+    property AcceptOnMatch;
+    function Decide(const Event: TLogEvent): TLogFilterDecision; override;
+  end;
+
+  { Filter by the message's level.
+
+    Accepts the following options (as well as the standard acceptOnMatch one):
+
+    # Class identification
+    log4d.appender.<name>.filter1=TLogLevelMatchFilter
+    # Logging level to match on, Level, mandatory
+    log4d.appender.<name>.filter1.match=warn
+  }
+  TLogLevelMatchFilter = class(TLogCustomFilter)
   private
-    FMatch: TLogPriority;
+    FMatchLevel: TLogLevel;
   protected
     procedure SetOption(const Name, Value: string); override;
   public
-    constructor Create(Match: TLogPriority; AcceptOnMatch: Boolean = True);
-      reintroduce;
+    constructor Create(const MatchLevel: TLogLevel;
+      const AcceptOnMatch: Boolean = True); reintroduce;
     property AcceptOnMatch;
-    property Match: TLogPriority read FMatch write FMatch;
-    function Decide(Event: TLogEvent): TLogFilterDecision; override;
+    property MatchLevel: TLogLevel read FMatchLevel write FMatchLevel;
+    function Decide(const Event: TLogEvent): TLogFilterDecision; override;
   end;
 
-  { Filter by text within the message. }
+  { Filter by the message's level being within a range.
+
+    Accepts the following options (as well as the standard acceptOnMatch one):
+
+    # Class identification
+    log4d.appender.<name>.filter1=TLogLevelRangeFilter
+    # Minimum logging level to match on, Level, mandatory
+    log4d.appender.<name>.filter1.minimum=warn
+    # Maximum logging level to match on, Level, mandatory
+    log4d.appender.<name>.filter1.maximum=error
+  }
+  TLogLevelRangeFilter = class(TLogCustomFilter)
+  private
+    FMaxLevel: TLogLevel;
+    FMinLevel: TLogLevel;
+  protected
+    procedure SetOption(const Name, Value: string); override;
+  public
+    constructor Create(const MaxLevel, MinLevel: TLogLevel;
+      const AcceptOnMatch: Boolean = True); reintroduce;
+    property AcceptOnMatch;
+    property MaxLevel: TLogLevel read FMaxLevel write FMaxLevel;
+    property MinLevel: TLogLevel read FMinLevel write FMinLevel;
+    function Decide(const Event: TLogEvent): TLogFilterDecision; override;
+  end;
+
+  { Filter by text within the message.
+
+    Accepts the following options (as well as the standard acceptOnMatch one):
+
+    # Class identification
+    log4d.appender.<name>.filter1=TLogStringFilter
+    # Text to match on anywhere in message, string, mandatory
+    log4d.appender.<name>.filter1.match=xyz
+    # Whether match is case-sensitive, Boolean, optional, defaults to false
+    log4d.appender.<name>.filter1.ignoreCase=true
+  }
   TLogStringFilter = class(TLogCustomFilter)
   private
+    FIgnoreCase: Boolean;
     FMatch: string;
   protected
     procedure SetOption(const Name, Value: string); override;
   public
-    constructor Create(Match: string; AcceptOnMatch: Boolean = True);
-      reintroduce;
+    constructor Create(const Match: string; const IgnoreCase: Boolean = False;
+      const AcceptOnMatch: Boolean = True); reintroduce;
     property AcceptOnMatch;
+    property IgnoreCase: Boolean read FIgnoreCase write FIgnoreCase;
     property Match: string read FMatch write FMatch;
-    function Decide(Event: TLogEvent): TLogFilterDecision; override;
+    function Decide(const Event: TLogEvent): TLogFilterDecision; override;
   end;
 
 { Appenders -------------------------------------------------------------------}
@@ -525,19 +713,19 @@ type
     for printing log statements. }
   ILogAppender = interface(ILogOptionHandler)
     ['{E1A06EA7-34CA-4DA4-9A8A-C76CF34257AC}']
-    procedure AddFilter(Filter: ILogFilter);
-    procedure Append(Event: TLogEvent);
+    procedure AddFilter(const Filter: ILogFilter);
+    procedure Append(const Event: TLogEvent);
     procedure Close;
     function GetErrorHandler: ILogErrorHandler;
     function GetFilters: TInterfaceList;
     function GetLayout: ILogLayout;
     function GetName: string;
     procedure RemoveAllFilters;
-    procedure RemoveFilter(Filter: ILogFilter);
+    procedure RemoveFilter(const Filter: ILogFilter);
     function RequiresLayout: Boolean;
-    procedure SetErrorHandler(ErrorHandler: ILogErrorHandler);
-    procedure SetLayout(Layout: ILogLayout);
-    procedure SetName(Name: string);
+    procedure SetErrorHandler(const ErrorHandler: ILogErrorHandler);
+    procedure SetLayout(const Layout: ILogLayout);
+    procedure SetName(const Name: string);
     property ErrorHandler: ILogErrorHandler read GetErrorHandler
       write SetErrorHandler;
     property Filters: TInterfaceList read GetFilters;
@@ -559,45 +747,45 @@ type
     function GetFilters: TInterfaceList;
     function GetLayout: ILogLayout;
     function GetName: string;
-    procedure SetErrorHandler(ErrorHandler: ILogErrorHandler);
-    procedure SetLayout(Layout: ILogLayout);
-    procedure SetName(Name: string);
+    procedure SetErrorHandler(const ErrorHandler: ILogErrorHandler);
+    procedure SetLayout(const Layout: ILogLayout);
+    procedure SetName(const Name: string);
   protected
     FCriticalAppender: TRTLCriticalSection;
     function CheckEntryConditions: Boolean; virtual;
-    function CheckFilters(Event: TLogEvent): Boolean; virtual;
-    procedure DoAppend(Event: TLogEvent); overload; virtual;
-    procedure DoAppend(Message: string); overload; virtual; abstract;
+    function CheckFilters(const Event: TLogEvent): Boolean; virtual;
+    procedure DoAppend(const Event: TLogEvent); overload; virtual;
+    procedure DoAppend(const Message: string); overload; virtual; abstract;
     procedure WriteFooter; virtual;
     procedure WriteHeader; virtual;
   public
-    constructor Create(Name: string; Layout: ILogLayout = nil); reintroduce;
-      virtual;
+    constructor Create(const Name: string; const Layout: ILogLayout = nil);
+      reintroduce; virtual;
     destructor Destroy; override;
     property ErrorHandler: ILogErrorHandler read GetErrorHandler
       write SetErrorHandler;
     property Filters: TInterfaceList read GetFilters;
     property Layout: ILogLayout read GetLayout write SetLayout;
     property Name: string read GetName write SetName;
-    procedure AddFilter(Filter: ILogFilter); virtual;
-    procedure Append(Event: TLogEvent); virtual;
+    procedure AddFilter(const Filter: ILogFilter); virtual;
+    procedure Append(const Event: TLogEvent); virtual;
     procedure Close; virtual;
     procedure Init; override;
     procedure RemoveAllFilters; virtual;
-    procedure RemoveFilter(Filter: ILogFilter); virtual;
+    procedure RemoveFilter(const Filter: ILogFilter); virtual;
     function RequiresLayout: Boolean; virtual;
   end;
 
   { Discard log messages. }
   TLogNullAppender = class(TLogCustomAppender)
   protected
-    procedure DoAppend(Message: string); override;
+    procedure DoAppend(const Message: string); override;
   end;
 
   { Send log messages to debugging output. }
   TLogODSAppender = class(TLogCustomAppender)
   protected
-    procedure DoAppend(Message: string); override;
+    procedure DoAppend(const Message: string); override;
   end;
 
   { Send log messages to a stream. }
@@ -605,14 +793,24 @@ type
   private
     FStream: TStream;
   protected
-    procedure DoAppend(Message: string); override;
+    procedure DoAppend(const Message: string); override;
   public
-    constructor Create(Name: string; Stream: TStream; Layout: ILogLayout = nil);
-      reintroduce; virtual;
+    constructor Create(const Name: string; const Stream: TStream;
+      const Layout: ILogLayout = nil); reintroduce; virtual;
     destructor Destroy; override;
   end;
 
-  { Send log messages to a file. }
+  { Send log messages to a file.
+
+    Accepts the following options:
+
+    # Class identification
+    log4d.appender.<name>=TLogFileAppender
+    # Name of the file to write to, string, mandatory
+    log4d.appender.<name>.fileName=C:\Logs\App.log
+    # Whether to append to file, Boolean, optional, defaults to true
+    log4d.appender.<name>.append=false
+  }
   TLogFileAppender = class(TLogStreamAppender)
   private
     FAppend: Boolean;
@@ -620,8 +818,9 @@ type
   protected
     procedure SetOption(const Name, Value: string); override;
   public
-    constructor Create(Name, FileName: string; Layout: ILogLayout = nil;
-      Append: Boolean = True); reintroduce; virtual;
+    constructor Create(const Name, FileName: string;
+      const Layout: ILogLayout = nil; const Append: Boolean = True);
+      reintroduce; virtual;
     property FileName: TFileName read FFileName;
     property OpenAppend: Boolean read FAppend;
   end;
@@ -632,25 +831,25 @@ type
   TLogBasicConfigurator = class(TObject)
   private
     FRegistry: TStringList;
-    FCategoryFactory: ILogCategoryFactory;
+    FLoggerFactory: ILogLoggerFactory;
   protected
     { Used by subclasses to add a renderer
       to the hierarchy passed as parameter. }
-    procedure AddRenderer(Hierarchy: TLogHierarchy;
-      RenderedName, RendererName: string);
-    function AppenderGet(Name: string): ILogAppender;
-    procedure AppenderPut(Appender: ILogAppender);
-    procedure SetGlobalProps(Hierarchy: TLogHierarchy;
-      FactoryClassName, Debug, Disable, DisableOverride: string);
+    procedure AddRenderer(const Hierarchy: TLogHierarchy;
+      const RenderedName, RendererName: string);
+    function AppenderGet(const Name: string): ILogAppender;
+    procedure AppenderPut(const Appender: ILogAppender);
+    procedure SetGlobalProps(const Hierarchy: TLogHierarchy;
+      const FactoryClassName, Debug, Threshold: string);
   public
     constructor Create;
     destructor Destroy; override;
-    { Add appender to the root category. If no appender is provided,
+    { Add appender to the root logger. If no appender is provided,
       add a TLogODSAppender that uses TLogPatternLayout with the
-      TTCCPattern and prints to debugging output for the root category. }
-    class procedure Configure(Appender: ILogAppender = nil);
-    { Reset the default hierarchy to its defaut. It is equivalent to calling
-      Category.GetDefaultHierarchy.ResetConfiguration.
+      TTCCPattern and prints to debugging output for the root logger. }
+    class procedure Configure(const Appender: ILogAppender = nil);
+    { Reset the default hierarchy to its default. It is equivalent to calling
+      Logger.GetDefaultHierarchy.ResetConfiguration.
       See TLogHierarchy.ResetConfiguration for more details. }
     class procedure ResetConfiguration;
   end;
@@ -662,68 +861,69 @@ type
     You can enable Log4D internal logging by defining the log4d.debug variable. }
   TLogPropertyConfigurator = class(TLogBasicConfigurator)
   protected
-    procedure ConfigureRootCategory(Props: TStringList;
-      Hierarchy: TLogHierarchy);
-    procedure ParseAdditivityForCategory(Props: TStringList; Cat: TLogCategory);
-    function ParseAppender(Props: TStringList; AppenderName: string):
-      ILogAppender;
-    procedure ParseCategoriesAndRenderers(Props: TStringList;
-      Hierarchy: TLogHierarchy);
-    procedure ParseCategory(Props: TStringList; Cat: TLogCategory;
-      Value: string);
+    procedure ConfigureRootLogger(const Props: TStringList;
+      const Hierarchy: TLogHierarchy);
+    procedure ParseAdditivityForLogger(const Props: TStringList;
+      const Logger: TLogLogger);
+    function ParseAppender(const Props: TStringList;
+      const AppenderName: string): ILogAppender;
+    procedure ParseLoggersAndRenderers(const Props: TStringList;
+      const Hierarchy: TLogHierarchy);
+    procedure ParseLogger(const Props: TStringList; const Logger: TLogLogger;
+      const Value: string);
   public
-    class procedure Configure(Filename: string); overload;
-    class procedure Configure(Props: TStringList); overload;
-    procedure DoConfigure(FileName: string; Hierarchy: TLogHierarchy);
-      overload;
-    procedure DoConfigure(Props: TStringList; Hierarchy: TLogHierarchy);
-      overload;
+    class procedure Configure(const Filename: string); overload;
+    class procedure Configure(const Props: TStringList); overload;
+    procedure DoConfigure(const FileName: string;
+      const Hierarchy: TLogHierarchy); overload;
+    procedure DoConfigure(const Props: TStringList;
+      const Hierarchy: TLogHierarchy); overload;
   end;
 
 { Register a new appender class. }
-procedure RegisterAppender(Appender: TClass);
+procedure RegisterAppender(const Appender: TClass);
 { Find an appender based on its class name and create a new instance of it. }
-function FindAppender(ClassName: string): ILogAppender;
+function FindAppender(const ClassName: string): ILogAppender;
 
-{ Register a new category factory class. }
-procedure RegisterCategoryFactory(CategoryFactory: TClass);
-{ Find a category factory based on its class name
+{ Register a new logger factory class. }
+procedure RegisterLoggerFactory(const LoggerFactory: TClass);
+{ Find a logger factory based on its class name
   and create a new instance of it. }
-function FindCategoryFactory(ClassName: string): ILogCategoryFactory;
+function FindLoggerFactory(const ClassName: string): ILogLoggerFactory;
 
 { Register a new error handler class. }
-procedure RegisterErrorHandler(ErrorHandler: TClass);
+procedure RegisterErrorHandler(const ErrorHandler: TClass);
 { Find an error handler based on its class name
   and create a new instance of it. }
-function FindErrorHandler(ClassName: string): ILogErrorHandler;
+function FindErrorHandler(const ClassName: string): ILogErrorHandler;
 
 { Register a new filter class. }
-procedure RegisterFilter(Filter: TClass);
+procedure RegisterFilter(const Filter: TClass);
 { Find a filter based on its class name and create a new instance of it. }
-function FindFilter(ClassName: string): ILogFilter;
+function FindFilter(const ClassName: string): ILogFilter;
 
 { Register a new layout class. }
-procedure RegisterLayout(Layout: TClass);
+procedure RegisterLayout(const Layout: TClass);
 { Find a layout based on its class name and create a new instance of it. }
-function FindLayout(ClassName: string): ILogLayout;
+function FindLayout(const ClassName: string): ILogLayout;
 
 { Register a new class that can be rendered. }
-procedure RegisterRendered(Rendered: TClass);
+procedure RegisterRendered(const Rendered: TClass);
 { Find a rendered class based on its class name and return its class. }
-function FindRendered(ClassName: string): TClass;
+function FindRendered(const ClassName: string): TClass;
 
 { Register a new object renderer class. }
-procedure RegisterRenderer(Renderer: TClass);
+procedure RegisterRenderer(const Renderer: TClass);
 { Find an object renderer based on its class name
   and create a new instance of it. }
-function FindRenderer(ClassName: string): ILogRenderer;
+function FindRenderer(const ClassName: string): ILogRenderer;
 
 { Convert string value to a Boolean, with default. }
-function StrToBool(Value: string; Default: Boolean): Boolean;
+function StrToBool(Value: string; const Default: Boolean): Boolean;
 
 var
-  { Default implementation of ILogCategoryFactory }
-  DefaultCategoryFactory: TLogDefaultCategoryFactory;
+  { Default implementation of ILogLoggerFactory }
+  DefaultLoggerFactory: TLogDefaultLoggerFactory;
   { The logging hierarchy }
   DefaultHierarchy: TLogHierarchy;
   { Internal package logging. }
@@ -736,44 +936,51 @@ const
   MilliSecsPerDay = 24 * 60 * 60 * 1000;
 
 resourcestring
+  AddingLoggerMsg         = 'Adding logger "%s" in error handler';
   AppenderDefinedMsg      = 'Appender "%s" was already parsed';
   BadConfigFileMsg        = 'Couldn''t read configuration file "%s" - %s';
-  CategoryFactoryMsg      = 'Setting category factory to "%s"';
-  CategoryHdr             = 'Category';
   ClosedAppenderMsg       = 'Not allowed to write to a closed appender';
+  ConvertErrorMsg         = 'Could not convert "%s" to level';
   EndAppenderMsg          = 'Parsed "%s" options';
   EndErrorHandlerMsg      = 'End of parsing for "%s" error handler';
   EndFiltersMsg           = 'End of parsing for "%s" filter';
   EndLayoutMsg            = 'End of parsing for "%s" layout';
+  FallbackMsg             = 'Fallback on error %s';
+  FallbackReplaceMsg      = 'Fallback replacing "%s" with "%s" in logger "%s"';
   FinishedConfigMsg       = 'Finished configuring with %s';
   HandlingAdditivityMsg   = 'Handling %s="%s"';
   IgnoreConfigMsg         = 'Ignoring configuration file "%s"';
   InterfaceNotImplMsg     = '%s doesn''t implement %s';
   LayoutRequiredMsg       = 'Appender "%s" requires a layout';
+  LevelHdr                = 'Level';
+  LevelTokenMsg           = 'Level token is "%s"';
+  LoggerFactoryMsg        = 'Setting logger factory to "%s"';
+  LoggerHdr               = 'Logger';
   MessageHdr              = 'Message';
   NDCHdr                  = 'NDC';
   NilErrorHandlerMsg      = 'An appender cannot have a nil error handler';
-  NilPriorityMsg          = 'The root can''t have a nil priority';
-  NoAppendersMsg          = 'No appenders could be found for category "%s"';
+  NilLevelMsg             = 'The root can''t have a nil level';
+  NoAppendersMsg          = 'No appenders could be found for logger "%s"';
   NoAppenderCreatedMsg    = 'Couldn''t create appender named "%s"';
   NoClassMsg              = 'Couldn''t find class %s';
   NoLayoutMsg             = 'No layout set for appender named "%s"';
   NoRenderedCreatedMsg    = 'Couldn''t find rendered class "%s"';
   NoRendererMsg           = 'No renderer found for class %s';
   NoRendererCreatedMsg    = 'Couldn''t create renderer "%s"';
-  NoRootCategoryMsg       = 'Couldn''t find root category information. Is this OK?';
-  OverrideDisableMsg      = 'Overriding disable';
+  NoRootLoggerMsg         = 'Couldn''t find root logger information. Is this OK?';
   ParsingAppenderMsg      = 'Parsing appender named "%s"';
-  ParsingCategoryMsg      = 'Parsing for category "%s" with value="%s"';
-  ParsingErrorHandlderMsg = 'Parsing error handler options for "%s"';
+  ParsingLoggerMsg        = 'Parsing for logger "%s" with value="%s"';
+  ParsingErrorHandlerMsg  = 'Parsing error handler options for "%s"';
   ParsingFiltersMsg       = 'Parsing filter options for "%s"';
   ParsingLayoutMsg        = 'Parsing layout options for "%s"';
-  PleaseInitMsg           = 'Please initialize the Log4D system properly';
-  PriorityHdr             = 'Priority';
-  PriorityTokenMsg        = 'Priority token is "%s"';
+  PleaseInitMsg           = 'Please initialise the Log4D system properly';
   RendererMsg             = 'Rendering class: "%s", Rendered class: "%s"';
+  SessionStartMsg         = 'Log session start time';
   SettingAdditivityMsg    = 'Setting additivity for "%s" to "%s"';
-  SettingPriorityMsg      = 'Category "%s" set to priority "%s"';
+  SettingAppenderMsg      = 'Setting appender "%s" in error handler';
+  SettingBackupMsg        = 'Setting backup appender "%s" in error handler';
+  SettingLevelMsg         = 'Logger "%s" set to level "%s"';
+  SettingLoggerMsg        = 'Setting logger "%s" in error handler';
   ThreadHdr               = 'Thread';
   TimeHdr                 = 'Time';
   ValueUnknownMsg         = 'Unknown';
@@ -813,87 +1020,94 @@ begin
   FOptions.Values[Name] := Value;
 end;
 
-{ TLogPriority ----------------------------------------------------------------}
+{ TLogLevel -------------------------------------------------------------------}
 
 var
-  Priorities: TObjectList;
+  Levels: TObjectList;
 
-{ Accumulate a list (in descending order) of TLogPriority objects defined. }
-procedure RegisterPriority(Priority: TLogPriority);
+{ Accumulate a list (in descending order) of TLogLevel objects defined. }
+procedure RegisterLevel(Level: TLogLevel);
 var
   Index: Integer;
 begin
-  if Priorities.IndexOf(Priority) > -1 then
+  if Levels.IndexOf(Level) > -1 then
     Exit;
-  for Index := 0 to Priorities.Count - 1 do
-    if TLogPriority(Priorities[Index]).Level < Priority.Level then
+  for Index := 0 to Levels.Count - 1 do
+    if TLogLevel(Levels[Index]).Level < Level.Level then
     begin
-      Priorities.Insert(Index, Priority);
+      Levels.Insert(Index, Level);
       Exit;
     end
-    else if TLogPriority(Priorities[Index]).Level = Priority.Level then
+    else if TLogLevel(Levels[Index]).Level = Level.Level then
     begin
-{$IFDEF VER120}  { Delphi 4 }
-      TObject(Priorities[Index]).Free;
+{$IFDEF DELPHI4}
+      TObject(Levels[Index]).Free;
 {$ELSE}
-      Priorities[Index].Free;
+      Levels[Index].Free;
 {$ENDIF}
-      Priorities[Index] := Priority;
+      Levels[Index] := Level;
       Exit;
     end;
-  Priorities.Add(Priority);
+  Levels.Add(Level);
 end;
 
-{ Return all possible priorities as a list of TLogPriority objects in
-  descending order. }
-function GetAllPriorities: TObjectList;
-begin
-  Result := Priorities;
-end;
-
-{ Return a priority given its level, or nil if not found. }
-function GetPriority(Level: Integer): TLogPriority;
-var
-  Index: Integer;
-begin
-  Result := nil;
-  for Index := 0 to Priorities.Count - 1 do
-    if TLogPriority(Priorities[Index]).Level = Level then
-    begin
-      Result := TLogPriority(Priorities[Index]);
-      Break;
-    end
-    else if TLogPriority(Priorities[Index]).Level < Level then
-      Break;
-end;
-
-{ Return a priority given its name, or nil if not found. }
-function GetPriority(Name: string): TLogPriority;
-var
-  Index: Integer;
-begin
-  for Index := 0 to Priorities.Count - 1 do
-    if TLogPriority(Priorities[Index]).Name = Name then
-    begin
-      Result := TLogPriority(Priorities[Index]);
-      Exit;
-    end;
-  Result := nil;
-end;
-
-constructor TLogPriority.Create(Name: string; Level: Integer);
+constructor TLogLevel.Create(Name: string; Level: Integer);
 begin
   inherited Create;
   FName  := Name;
   FLevel := Level;
-  RegisterPriority(Self);
+  RegisterLevel(Self);
 end;
 
-{ Returns True if this priority has a higher or equal priority
-  than the priority passed as argument, False otherwise. }
-function TLogPriority.IsGreaterOrEqual(Priority: TLogPriority): Boolean;
+{ Retrieve a level object given its level. }
+class function TLogLevel.GetLevel(LogLevel: Integer): TLogLevel;
 begin
-  Result := (Level >= Priority.Level);
+  Result := GetLevel(LogLevel, Debug);
+end;
+
+{ Retrieve a level object given its level, or default if not valid. }
+class function TLogLevel.GetLevel(LogLevel: Integer; DefaultLevel: TLogLevel):
+  TLogLevel;
+var
+  Index: Integer;
+begin
+  Result := DefaultLevel;
+  for Index := 0 to Levels.Count - 1 do
+    if TLogLevel(Levels[Index]).Level = LogLevel then
+    begin
+      Result := TLogLevel(Levels[Index]);
+      Break;
+    end
+    else if TLogLevel(Levels[Index]).Level < LogLevel then
+      Break;
+end;
+
+{ Retrieve a level object given its name. }
+class function TLogLevel.GetLevel(Name: string): TLogLevel;
+begin
+  Result := GetLevel(Name, Debug);
+end;
+
+{ Retrieve a level object given its name, or default if not valid. }
+class function TLogLevel.GetLevel(Name: string; DefaultLevel: TLogLevel):
+  TLogLevel;
+var
+  Index: Integer;
+begin
+  Result := DefaultLevel;
+  for Index := 0 to Levels.Count - 1 do
+    if TLogLevel(Levels[Index]).Name = Name then
+    begin
+      Result := TLogLevel(Levels[Index]);
+      Exit;
+    end;
+end;
+
+{ Returns True if this level has a higher or equal value
+  than the level passed as argument, False otherwise. }
+function TLogLevel.IsGreaterOrEqual(LogLevel: TLogLevel): Boolean;
+begin
+  Result := (Self.Level >= LogLevel.Level);
 end;
 
 { TLogNDC ---------------------------------------------------------------------}
@@ -907,19 +1121,7 @@ var
   { The controller for synchronisation }
   CriticalNDC: TRTLCriticalSection;
 
-{ Return the current thread id as a string. }
-function GetThreadId: string;
-begin
-  Result := IntToStr(GetCurrentThreadId);
-end;
-
-{ Find the index in the NDCs for the current thread. }
-function GetNDCIndex: Integer;
-begin
-  Result := NDC.IndexOf(GetThreadId);
-end;
-
-{ Empty out the NDC stack. }
+{ Empty out the current NDC stack. }
 class procedure TLogNDC.Clear;
 var
   Index: Integer;
@@ -928,17 +1130,77 @@ begin
   try
     Index := GetNDCIndex;
     if Index > -1 then
-    begin
-      NDC.Objects[Index].Free;
-      NDC.Delete(Index);
-    end;
+      TStringList(NDC.Objects[Index]).Clear;
+  finally
+    LeaveCriticalSection(CriticalNDC);
+  end;
+end;
+
+{ Return a copy of the current NDC. }
+class procedure TLogNDC.CloneStack(const Context: TStringList);
+var
+  Index: Integer;
+begin
+  EnterCriticalSection(CriticalNDC);
+  try
+    Index := GetNDCIndex;
+    if Index > -1 then
+      Context.Assign(TStringList(NDC.Objects[Index]))
+    else
+      Context.Clear;
+  finally
+    LeaveCriticalSection(CriticalNDC);
+  end;
+end;
+
+{ Retrieve the depth for the current NDC. }
+class function TLogNDC.GetDepth: Integer;
+var
+  Index: Integer;
+begin
+  EnterCriticalSection(CriticalNDC);
+  try
+    Result := 0;
+    Index  := GetNDCIndex;
+    if Index > -1 then
+      Result := TStringList(NDC.Objects[Index]).Count;
+  finally
+    LeaveCriticalSection(CriticalNDC);
+  end;
+end;
+
+{ Find the index in the NDCs for the current thread. }
+class function TLogNDC.GetNDCIndex: Integer;
+begin
+  Result := NDC.IndexOf(GetThreadId);
+end;
+
+{ Return the current thread id as a string. }
+class function TLogNDC.GetThreadId: string;
+begin
+  Result := IntToStr(GetCurrentThreadId);
+end;
+
+{ Use the provided context for this NDC. }
+class procedure TLogNDC.Inherit(const Context: TStringList);
+var
+  Index: Integer;
+begin
+  if Context = nil then
+    Exit;
+  EnterCriticalSection(CriticalNDC);
+  try
+    Index := GetNDCIndex;
+    if Index = -1 then
+      Index := NDC.AddObject(GetThreadId, TStringList.Create);
+    TStringList(NDC.Objects[Index]).Assign(Context)
   finally
     LeaveCriticalSection(CriticalNDC);
   end;
 end;
 
 { Retrieve the current NDC for display. }
-class function TLogNDC.Context: string;
+class function TLogNDC.Peek: string;
 var
   Index, Index2: Integer;
 begin
@@ -957,28 +1219,33 @@ begin
   end;
 end;
 
-{ Remove the last context string added to the stack. }
-class procedure TLogNDC.Pop;
+{ Remove the last context string added to the stack and return its value. }
+class function TLogNDC.Pop: string;
 var
-  Index: Integer;
+  Index, Index2: Integer;
 begin
   EnterCriticalSection(CriticalNDC);
   try
-    Index := GetNDCIndex;
+    Result := '';
+    Index  := GetNDCIndex;
     if Index = -1 then
       Exit;
     with TStringList(NDC.Objects[Index]) do
+    begin
+      for Index2 := 0 to Count - 1 do
+        Result := Result + '|' + Strings[Index2];
       if Count <= 1 then
         TLogNDC.Clear
       else if Count > 0 then
         Delete(Count - 1);
+    end;
   finally
     LeaveCriticalSection(CriticalNDC);
   end;
 end;
 
 { Add a new context string to the stack. }
-class procedure TLogNDC.Push(Context: string);
+class procedure TLogNDC.Push(const Context: string);
 var
   Index: Integer;
 begin
@@ -994,33 +1261,73 @@ begin
   end;
 end;
 
+{ Remove the current NDC. }
+class procedure TLogNDC.Remove;
+var
+  Index: Integer;
+begin
+  EnterCriticalSection(CriticalNDC);
+  try
+    Index := GetNDCIndex;
+    if Index > -1 then
+    begin
+      NDC.Objects[Index].Free;
+      NDC.Delete(Index);
+    end;
+  finally
+    LeaveCriticalSection(CriticalNDC);
+  end;
+end;
+
+{ Trim the current NDC back to a certain depth. }
+class procedure TLogNDC.SetMaxDepth(const MaxDepth: Integer);
+var
+  Index: Integer;
+begin
+  EnterCriticalSection(CriticalNDC);
+  try
+    Index := GetNDCIndex;
+    if Index > -1 then
+      with TStringList(NDC.Objects[Index]) do
+        while Count > MaxDepth do
+          Delete(Count - 1);
+  finally
+    LeaveCriticalSection(CriticalNDC);
+  end;
+end;
+
 { TLogEvent -------------------------------------------------------------------}
 
-constructor TLogEvent.Create(Category: TLogCategory; Priority: TLogPriority;
-  Message: string; Err: Exception);
+constructor TLogEvent.Create(const Logger: TLogLogger;
+  const Level: TLogLevel; const Message: string; const Err: Exception;
+  const TimeStamp: TDateTime);
 begin
   inherited Create;
-  FCategory  := Category;
-  FPriority  := Priority;
-  FMessage   := Message;
-  FError     := Err;
-  FTimeStamp := Now;
+  FLogger  := Logger;
+  FLevel   := Level;
+  FMessage := Message;
+  FError   := Err;
+  if TimeStamp = 0 then
+    FTimeStamp := Now
+  else
+    FTimeStamp := TimeStamp;
 end;
 
 { Immediately render an object into a text message. }
-constructor TLogEvent.Create(Category: TLogCategory; Priority: TLogPriority;
-  Message: TObject; Err: Exception);
+constructor TLogEvent.Create(const Logger: TLogLogger;
+  const Level: TLogLevel; const Message: TObject; const Err: Exception;
+  const TimeStamp: TDateTime);
 var
   Renderer: ILogRenderer;
 begin
-  Renderer := Category.Hierarchy.GetRenderer(Message.ClassType);
-  if not Assigned(Renderer) then
+  Renderer := Logger.Hierarchy.GetRenderer(Message.ClassType);
+  if Renderer = nil then
   begin
     LogLog.Error(Format(NoRendererMsg, [Message.ClassName]));
     Abort;
   end
   else
-    Create(Category, Priority, Renderer.Render(Message), Err);
+    Create(Logger, Level, Renderer.Render(Message), Err, Timestamp);
 end;
 
 { The elapsed time since package start up (in milliseconds). }
@@ -1029,19 +1336,34 @@ begin
   Result := Round((TimeStamp - StartTime) * MilliSecsPerDay);
 end;
 
-{ Return the embedded exceptions message (if there is one). }
+{ Return the embedded exception's class name (if there is one). }
+function TLogEvent.GetErrorClass: string;
+begin
+  if Error <> nil then
+    Result := Error.ClassName
+  else
+    Result := '';
+end;
+
+{ Return the embedded exception's message (if there is one). }
 function TLogEvent.GetErrorMessage: string;
 begin
-  if Assigned(Error) then
+  if Error <> nil then
     Result := Error.Message
   else
     Result := '';
 end;
 
+{ Return the name of the logger. }
+function TLogEvent.GetLoggerName: string;
+begin
+  Result := FLogger.Name;
+end;
+
 { Return the nested diagnostic context. }
 function TLogEvent.GetNDC: string;
 begin
-  Result := TLogNDC.Context;
+  Result := TLogNDC.Peek;
 end;
 
 { Return the current thread ID. }
@@ -1050,50 +1372,70 @@ begin
   Result := GetCurrentThreadId;
 end;
 
-{ TLogDefaultCategoryFactory --------------------------------------------------}
+{ TLogDefaultLoggerFactory ----------------------------------------------------}
 
-function TLogDefaultCategoryFactory.MakeNewCategoryInstance(Name: string):
-  TLogCategory;
+function TLogDefaultLoggerFactory.MakeNewLoggerInstance(const Name: string):
+  TLogLogger;
 begin
-  Result := TLogCategory.Create(Name);
+  Result := TLogLogger.Create(Name);
 end;
 
-{ TLogCategory ----------------------------------------------------------------}
+{ TLogLogger ------------------------------------------------------------------}
 
-constructor TLogCategory.Create(Name: string);
+constructor TLogLogger.Create(const Name: string);
 begin
   inherited Create;
-  InitializeCriticalSection(FCriticalCategory);
+  InitializeCriticalSection(FCriticalLogger);
   FAdditive  := True;
   FAppenders := TInterfaceList.Create;
   FName      := Name;
 end;
 
-destructor TLogCategory.Destroy;
+destructor TLogLogger.Destroy;
 begin
   FAppenders.Free;
-  DeleteCriticalSection(FCriticalCategory);
+  DeleteCriticalSection(FCriticalLogger);
   inherited Destroy;
 end;
 
-procedure TLogCategory.AddAppender(Appender: ILogAppender);
+procedure TLogLogger.AddAppender(const Appender: ILogAppender);
 begin
-  EnterCriticalSection(FCriticalCategory);
+  LockLogger;
   try
     if FAppenders.IndexOf(Appender) = -1 then
+    begin
       FAppenders.Add(Appender);
+      if FHierarchy <> nil then
+        FHierarchy.FireAppenderEvent(True, Self, Appender);
+    end;
   finally
-    LeaveCriticalSection(FCriticalCategory);
+    UnlockLogger;
   end;
+end;
+
+{ Log a message if the assertion is false. }
+procedure TLogLogger.AssertLog(const Assertion: Boolean;
+  const Message: string);
+begin
+  if not Assertion then
+    DoLog(Log4D.Error, Message);
+end;
+
+{ Log a message if the assertion is false. }
+procedure TLogLogger.AssertLog(const Assertion: Boolean;
+  const Message: TObject);
+begin
+  if not Assertion then
+    DoLog(Log4D.Error, Message);
 end;
 
 { Send event to each appender to be logged.
   If additive, also send to parent's appenders. }
-procedure TLogCategory.CallAppenders(Event: TLogEvent);
+procedure TLogLogger.CallAppenders(const Event: TLogEvent);
 var
   Index: Integer;
 begin
-  EnterCriticalSection(FCriticalCategory);
+  LockLogger;
   try
     if CountAppenders = 0 then
     begin
@@ -1103,51 +1445,51 @@ begin
     end;
     for Index := 0 to FAppenders.Count - 1 do
       ILogAppender(FAppenders[Index]).Append(Event);
-    if Additive and Assigned(Parent) then
+    if Additive and (Parent <> nil) then
       Parent.CallAppenders(Event);
   finally
-    LeaveCriticalSection(FCriticalCategory);
+    UnlockLogger;
   end;
 end;
 
-procedure TLogCategory.CloseAllAppenders;
+procedure TLogLogger.CloseAllAppenders;
 var
   Index: Integer;
 begin
-  EnterCriticalSection(FCriticalCategory);
+  LockLogger;
   try
     for Index := 0 to FAppenders.Count - 1 do
       ILogAppender(FAppenders[Index]).Close;
   finally
-    LeaveCriticalSection(FCriticalCategory);
+    UnlockLogger;
   end;
 end;
 
 { Include parent's appenders in the count (if additive). }
-function TLogCategory.CountAppenders: Integer;
+function TLogLogger.CountAppenders: Integer;
 begin
   Result := FAppenders.Count;
-  if Additive and Assigned(Parent) then
+  if Additive and (Parent <> nil) then
     Result := Result + Parent.CountAppenders;
 end;
 
-procedure TLogCategory.Debug(Message: string; Err: Exception);
+procedure TLogLogger.Debug(const Message: string; const Err: Exception);
 begin
   Log(Log4D.Debug, Message, Err);
 end;
 
-procedure TLogCategory.Debug(Message: TObject; Err: Exception);
+procedure TLogLogger.Debug(const Message: TObject; const Err: Exception);
 begin
   Log(Log4D.Debug, Message, Err);
 end;
 
 { Create the logging event object and send it to the appenders. }
-procedure TLogCategory.DoLog(Priority: TLogPriority; Message: string;
-  Err: Exception);
+procedure TLogLogger.DoLog(const LogLevel: TLogLevel; const Message: string;
+  const Err: Exception);
 var
   Event: TLogEvent;
 begin
-  Event := TLogEvent.Create(Self, Priority, Message, Err);
+  Event := TLogEvent.Create(Self, LogLevel, Message, Err);
   try
     CallAppenders(Event);
   finally
@@ -1155,12 +1497,12 @@ begin
   end;
 end;
 
-procedure TLogCategory.DoLog(Priority: TLogPriority; Message: TObject;
-  Err: Exception);
+procedure TLogLogger.DoLog(const LogLevel: TLogLevel; const Message: TObject;
+  const Err: Exception);
 var
   Event: TLogEvent;
 begin
-  Event := TLogEvent.Create(Self, Priority, Message, Err);
+  Event := TLogEvent.Create(Self, LogLevel, Message, Err);
   try
     CallAppenders(Event);
   finally
@@ -1168,139 +1510,193 @@ begin
   end;
 end;
 
-procedure TLogCategory.Error(Message: string; Err: Exception);
+procedure TLogLogger.Error(const Message: string; const Err: Exception);
 begin
   Log(Log4D.Error, Message, Err);
 end;
 
-procedure TLogCategory.Error(Message: TObject; Err: Exception);
+procedure TLogLogger.Error(const Message: TObject; const Err: Exception);
 begin
   Log(Log4D.Error, Message, Err);
 end;
 
-procedure TLogCategory.Fatal(Message: string; Err: Exception);
+procedure TLogLogger.Fatal(const Message: string; const Err: Exception);
 begin
   Log(Log4D.Fatal, Message, Err);
 end;
 
-procedure TLogCategory.Fatal(Message: TObject; Err: Exception);
+procedure TLogLogger.Fatal(const Message: TObject; const Err: Exception);
 begin
   Log(Log4D.Fatal, Message, Err);
 end;
 
-{ Create new categories via the category class. }
-class function TLogCategory.GetInstance(Name: string;
-  Factory: ILogCategoryFactory): TLogCategory;
+{ Find an appender by name. }
+function TLogLogger.GetAppender(const Name: string): ILogAppender;
+var
+  Index: Integer;
 begin
-  Result := DefaultHierarchy.GetInstance(Name, Factory);
+  Result := nil;
+  LockLogger;
+  try
+    for Index := 0 to FAppenders.Count - 1 do
+      if ILogAppender(FAppenders[Index]).Name = Name then
+      begin
+        Result := ILogAppender(FAppenders[Index]);
+        Exit;
+      end;
+  finally
+    UnlockLogger;
+  end;
 end;
 
-{ Return parent's priority if not set in this category. }
-function TLogCategory.GetPriority: TLogPriority;
+{ Create new loggers via the logger class. }
+class function TLogLogger.GetLogger(const Clazz: TClass;
+  const Factory: ILogLoggerFactory): TLogLogger;
 begin
-  if Assigned(FPriority) then
-    Result := FPriority
+  Result := GetLogger(Clazz.ClassName, Factory);
+end;
+
+{ Create new loggers via the logger class. }
+class function TLogLogger.GetLogger(const Name: string;
+  const Factory: ILogLoggerFactory): TLogLogger;
+begin
+  Result := DefaultHierarchy.GetLogger(Name, Factory);
+end;
+
+{ Retrieve the root logger. }
+class function TLogLogger.GetRootLogger: TLogLogger;
+begin
+  Result := DefaultHierarchy.Root;
+end;
+
+{ Return parent's level if not set in this logger. }
+function TLogLogger.GetLevel: TLogLevel;
+begin
+  if FLevel <> nil then
+    Result := FLevel
   else
-    Result := Parent.Priority;
+    Result := Parent.Level;
 end;
 
-procedure TLogCategory.Info(Message: string; Err: Exception);
+procedure TLogLogger.Info(const Message: string; const Err: Exception);
 begin
   Log(Log4D.Info, Message, Err);
 end;
 
-procedure TLogCategory.Info(Message: TObject; Err: Exception);
+procedure TLogLogger.Info(const Message: TObject; const Err: Exception);
 begin
   Log(Log4D.Info, Message, Err);
 end;
 
-function TLogCategory.IsDebugEnabled: Boolean;
+{ Is a given appender in use. }
+function TLogLogger.IsAppender(const Appender: ILogAppender): Boolean;
 begin
-  Result := IsPriorityEnabled(Log4D.Debug);
+  Result := (FAppenders.IndexOf(Appender) > -1);
 end;
 
-function TLogCategory.IsErrorEnabled: Boolean;
+function TLogLogger.IsDebugEnabled: Boolean;
 begin
-  Result := IsPriorityEnabled(Log4D.Error);
+  Result := IsEnabledFor(Log4D.Debug);
 end;
 
-function TLogCategory.IsFatalEnabled: Boolean;
+function TLogLogger.IsEnabledFor(const LogLevel: TLogLevel): Boolean;
 begin
-  Result := IsPriorityEnabled(Log4D.Fatal);
+  Result := LogLevel.IsGreaterOrEqual(Level);
 end;
 
-function TLogCategory.IsInfoEnabled: Boolean;
+function TLogLogger.IsErrorEnabled: Boolean;
 begin
-  Result := IsPriorityEnabled(Log4D.Info);
+  Result := IsEnabledFor(Log4D.Error);
 end;
 
-function TLogCategory.IsPriorityEnabled(Priority: TLogPriority): Boolean;
+function TLogLogger.IsFatalEnabled: Boolean;
 begin
-  Result := Priority.IsGreaterOrEqual(Self.Priority);
+  Result := IsEnabledFor(Log4D.Fatal);
 end;
 
-function TLogCategory.IsWarnEnabled: Boolean;
+function TLogLogger.IsInfoEnabled: Boolean;
 begin
-  Result := IsPriorityEnabled(Log4D.Warn);
+  Result := IsEnabledFor(Log4D.Info);
 end;
 
-{ Synchronise access to the category. }
-procedure TLogCategory.LockCategory;
+function TLogLogger.IsWarnEnabled: Boolean;
 begin
-  EnterCriticalSection(FCriticalCategory);
+  Result := IsEnabledFor(Log4D.Warn);
+end;
+
+{ Synchronise access to the logger. }
+procedure TLogLogger.LockLogger;
+begin
+  EnterCriticalSection(FCriticalLogger);
 end;
 
 { Hierarchy can disable logging at a global level. }
-procedure TLogCategory.Log(Priority: TLogPriority; Message: string;
-  Err: Exception);
+procedure TLogLogger.Log(const LogLevel: TLogLevel; const Message: string;
+  const Err: Exception);
 begin
-  if Hierarchy.IsDisabled(Priority.Level) then
+  if Hierarchy.IsDisabled(LogLevel.Level) then
     Exit;
-  if IsPriorityEnabled(Priority) then
-    DoLog(Priority, Message, Err);
+  if IsEnabledFor(LogLevel) then
+    DoLog(LogLevel, Message, Err);
 end;
 
-procedure TLogCategory.Log(Priority: TLogPriority; Message: TObject;
-  Err: Exception);
+procedure TLogLogger.Log(const LogLevel: TLogLevel; const Message: TObject;
+  const Err: Exception);
 begin
-  if Hierarchy.IsDisabled(Priority.Level) then
+  if Hierarchy.IsDisabled(LogLevel.Level) then
     Exit;
-  if IsPriorityEnabled(Priority) then
-    DoLog(Priority, Message, Err);
+  if IsEnabledFor(LogLevel) then
+    DoLog(LogLevel, Message, Err);
 end;
 
-procedure TLogCategory.RemoveAllAppenders;
+procedure TLogLogger.RemoveAllAppenders;
 begin
-  EnterCriticalSection(FCriticalCategory);
+  LockLogger;
   try
     FAppenders.Clear;
   finally
-    LeaveCriticalSection(FCriticalCategory);
+    UnlockLogger;
   end;
 end;
 
-procedure TLogCategory.RemoveAppender(Appender: ILogAppender);
+procedure TLogLogger.RemoveAppender(const Appender: ILogAppender);
 begin
-  EnterCriticalSection(FCriticalCategory);
+  LockLogger;
   try
     FAppenders.Remove(Appender);
+    if FHierarchy <> nil then
+      FHierarchy.FireAppenderEvent(False, Self, Appender);
   finally
-    LeaveCriticalSection(FCriticalCategory);
+    UnlockLogger;
   end;
 end;
 
-{ Release synchronised access to the category. }
-procedure TLogCategory.UnlockCategory;
+procedure TLogLogger.RemoveAppender(const Name: string);
+var
+  Appender: ILogAppender;
 begin
-  LeaveCriticalSection(FCriticalCategory);
+  LockLogger;
+  try
+    Appender := GetAppender(Name);
+    if Appender <> nil then
+      FAppenders.Remove(Appender);
+  finally
+    UnlockLogger;
+  end;
 end;
 
-procedure TLogCategory.Warn(Message: string; Err: Exception);
+{ Release synchronised access to the logger. }
+procedure TLogLogger.UnlockLogger;
+begin
+  LeaveCriticalSection(FCriticalLogger);
+end;
+
+procedure TLogLogger.Warn(const Message: string; const Err: Exception);
 begin
   Log(Log4D.Warn, Message, Err);
 end;
 
-procedure TLogCategory.Warn(Message: TObject; Err: Exception);
+procedure TLogLogger.Warn(const Message: TObject; const Err: Exception);
 begin
   Log(Log4D.Warn, Message, Err);
 end;
@@ -1310,22 +1706,22 @@ end;
 const
   InternalRootName = 'root';
 
-constructor TLogRoot.Create(Priority: TLogPriority);
+constructor TLogRoot.Create(const Level: TLogLevel);
 begin
   inherited Create(InternalRootName);
-  Self.Priority := Priority;
+  Self.Level := Level;
 end;
 
-{ Root category cannot have a nil priority. }
-procedure TLogRoot.SetPriority(Priority: TLogPriority);
+{ Root logger cannot have a nil level. }
+procedure TLogRoot.SetLevel(const Level: TLogLevel);
 begin
-  if not Assigned(Priority) then
+  if Level = nil then
   begin
-    LogLog.Error(NilPriorityMsg);
-    inherited Priority := Log4D.Debug;
+    LogLog.Error(NilLevelMsg);
+    inherited Level := Log4D.Debug;
   end
   else
-    inherited Priority := Priority;
+    inherited Level := Level;
 end;
 
 { TLogLog ---------------------------------------------------------------------}
@@ -1336,57 +1732,62 @@ begin
   inherited Create('');
   AddAppender(TLogODSAppender.Create(''));
   InternalDebugging := False;
-  Priority          := Log4D.Debug;
+  Level             := Log4D.Debug;
 end;
 
 { Only log internal debugging messages when requested. }
-procedure TLogLog.DoLog(Priority: TLogPriority; Message: string;
-  Err: Exception);
+procedure TLogLog.DoLog(const LogLevel: TLogLevel; const Message: string;
+  const Err: Exception);
 begin
-  if (Priority <> Log4D.Debug) or InternalDebugging then
-    inherited DoLog(Priority, Message, Err);
+  if (LogLevel <> Log4D.Debug) or InternalDebugging then
+    inherited DoLog(LogLevel, Message, Err);
 end;
 
-procedure TLogLog.DoLog(Priority: TLogPriority; Message: TObject;
-  Err: Exception);
+procedure TLogLog.DoLog(const LogLevel: TLogLevel; const Message: TObject;
+  const Err: Exception);
 begin
-  if (Priority <> Log4D.Debug) or InternalDebugging then
-    inherited DoLog(Priority, Message, Err);
+  if (LogLevel <> Log4D.Debug) or InternalDebugging then
+    inherited DoLog(LogLevel, Message, Err);
 end;
 
 { TLogHierarchy ---------------------------------------------------------------}
 
-const
-  { DisableOff should be set to a value lower than all possible priorities. }
-  DisableOff      = -1;
-  DisableOverride = -2;
-
-constructor TLogHierarchy.Create(Root: TLogCategory);
+constructor TLogHierarchy.Create(Root: TLogLogger);
 begin
   inherited Create;
   InitializeCriticalSection(FCriticalHierarchy);
-  FCategories      := TStringList.Create;
-  FRoot            := Root;
-  FRoot.Hierarchy  := Self;
-  { Don't disable any priority level by default. }
-  FDisable         := DisableOff;
-  FRenderedClasses := TClassList.Create;
-  FRenderers       := TInterfaceList.Create;
+  FEmittedNoAppenderWarning := False;
+  FListeners                := TInterfaceList.Create;
+  FLoggers                  := TStringList.Create;
+  FRenderedClasses          := TClassList.Create;
+  FRenderers                := TInterfaceList.Create;
+  FRoot                     := Root;
+  FRoot.Hierarchy           := Self;
+  FThreshold                := All;
 end;
 
 destructor TLogHierarchy.Destroy;
 begin
   Shutdown;
   Clear;
-  FCategories.Free;
-  if TLogCategory(FRoot).RefCount > 0 then
-    TLogCategory(FRoot)._Release
+  FListeners.Free;
+  FLoggers.Free;
+  if TLogLogger(FRoot).RefCount > 0 then
+    TLogLogger(FRoot)._Release
   else
     FRoot.Free;
   FRenderedClasses.Free;
   FRenderers.Free;
   DeleteCriticalSection(FCriticalHierarchy);
   inherited Destroy;
+end;
+
+{ Add a new listener for hierarchy events. }
+procedure TLogHierarchy.AddHierarchyEventListener(
+  const Listener: ILogHierarchyEventListener);
+begin
+  if FListeners.IndexOf(Listener) = -1 then
+    FListeners.Add(Listener);
 end;
 
 { Add an object renderer for a specific class. }
@@ -1405,114 +1806,91 @@ begin
     FRenderers[Index] := Renderer;
 end;
 
-{ This call will clear all category definitions from the internal hashtable.
-  Invoking this method will irrevocably mess up the category hierarchy.
+{ This call will clear all logger definitions from the internal hashtable.
+  Invoking this method will irrevocably mess up the logger hierarchy.
   You should really know what you are doing before invoking this method. }
 procedure TLogHierarchy.Clear;
 var
   Index: Integer;
 begin
-  for Index := 0 to FCategories.Count - 1 do
-    if TLogCategory(FCategories.Objects[Index]).RefCount > 0 then
-      TLogCategory(FCategories.Objects[Index])._Release
+  for Index := 0 to FLoggers.Count - 1 do
+    if TLogLogger(FLoggers.Objects[Index]).RefCount > 0 then
+      TLogLogger(FLoggers.Objects[Index])._Release
     else
-      FCategories.Objects[Index].Free;
-  FCategories.Clear;
+      FLoggers.Objects[Index].Free;
+  FLoggers.Clear;
 end;
 
-{ Disable all logging requests of priority equal to or below the
-  priority parameter, for all categories in this hierarchy.
-  Logging requests of higher priority then specified remain unaffected.
-
-  Nevertheless, if the DisableOverrideKey system property is set to 'true' or
-  any value other than 'false', then logging requests are evaluated as usual,
-  i.e. according to the Basic Selection Rule.
-
-  The 'disable' family of methods are there for speed. They allow printing
-  methods such as debug, info, etc. to return immediately after an integer
-  comparison without walking the category hierarchy. In most modern computers
-  an integer comparison is measured in nanoseconds where as a category walk
-  is measured in units of microseconds. }
-procedure TLogHierarchy.Disable(Priority: TLogPriority);
+{ Warn the user about no appenders for a logger, but only once. }
+procedure TLogHierarchy.EmitNoAppenderWarning(const Logger: TLogLogger);
 begin
-  if (FDisable <> DisableOverride) and Assigned(Priority) then
-    FDisable := Priority.Level;
+  if not FEmittedNoAppenderWarning then
+  begin
+    LogLog.Warn(Format(NoAppendersMsg, [Logger.Name]));
+    LogLog.Warn(PleaseInitMsg);
+    FEmittedNoAppenderWarning := True;
+  end;
 end;
 
-{ Disable all logging requests regardless of category and priority.
-  This method is equivalent to calling Disable with the
-  argument Fatal, the highest possible priority. }
-procedure TLogHierarchy.DisableAll;
-begin
-  Disable(Fatal);
-end;
-
-{ Disable all logging requests of priority Debug regardless of category.
-  Invoking this method is equivalent to calling Disable with the
-  argument Debug. }
-procedure TLogHierarchy.DisableDebug;
-begin
-  Disable(Debug);
-end;
-
-{ Disable all logging requests of priority Info and below
-  regardless of category. Note that Debug messages are also disabled.
-  Invoking this method is equivalent to calling Disable with the
-  argument Info. }
-procedure TLogHierarchy.DisableInfo;
-begin
-  Disable(Info);
-end;
-
-{ Undoes the effect of calling any of Disable, DisableAll, DisableDebug,
-  or DisableInfo methods. More precisely, invoking this method sets the
-  internal variable to its default 'off' value. }
-procedure TLogHierarchy.EnableAll;
-begin
-  FDisable := DisableOff;
-end;
-
-{ Check if the named category exists in the hirarchy.
+{ Check if the named logger exists in the hirarchy.
   If so return its reference, otherwise return nil. }
-function TLogHierarchy.Exists(Name: string): TLogCategory;
+function TLogHierarchy.Exists(const Name: string): TLogLogger;
 var
   Index: Integer;
 begin
-  Index := FCategories.IndexOf(Name);
+  Index := FLoggers.IndexOf(Name);
   if Index > -1 then
-    Result := TLogCategory(FCategories.Objects[Index])
+    Result := TLogLogger(FLoggers.Objects[Index])
   else
     Result := nil;
 end;
 
-{ Returns all the currently defined categories in this hierarchy as
-  a string list (excluding the root category). }
-procedure TLogHierarchy.GetCurrentCategories(List: TStringList);
+{ Notify registered listeners of an event. }
+procedure TLogHierarchy.FireAppenderEvent(const Adding: Boolean;
+  const Logger: TLogLogger; const Appender: ILogAppender);
 var
   Index: Integer;
 begin
-  for Index := 0 to FCategories.Count - 1 do
-    List.Add(FCategories[Index]);
+  for Index := 0 to FListeners.Count - 1 do
+    with ILogHierarchyEventListener(FListeners[Index]) do
+      if Adding then
+        AddAppenderEvent(Logger, Appender)
+      else
+        RemoveAppenderEvent(Logger, Appender);
 end;
 
-{ Return a new category instance named as the first parameter using the
-  specified factory. If no factory is provided, use the DefaultCategoryFactory.
-  If a category of that name already exists, then it will be returned.
-  Otherwise, a new category will be instantiated by the factory parameter
+{ Returns all the currently defined loggers in this hierarchy as
+  a string list (excluding the root logger). }
+procedure TLogHierarchy.GetCurrentLoggers(const List: TStringList);
+var
+  Index: Integer;
+begin
+  for Index := 0 to FLoggers.Count - 1 do
+    List.Add(FLoggers[Index]);
+end;
+
+{ Return a new logger instance named as the first parameter using the
+  specified factory. If no factory is provided, use the DefaultLoggerFactory.
+  If a logger of that name already exists, then it will be returned.
+  Otherwise, a new logger is instantiated by the factory parameter
   and linked with its existing ancestors as well as children. }
-function TLogHierarchy.GetInstance(Name: string; Factory: ILogCategoryFactory):
-  TLogCategory;
+function TLogHierarchy.GetLogger(const Name: string;
+  const Factory: ILogLoggerFactory): TLogLogger;
+var
+  LoggerFactory: ILogLoggerFactory;
 begin
   EnterCriticalSection(FCriticalHierarchy);
   try
     Result := Exists(Name);
-    if not Assigned(Result) then
+    if Result = nil then
     begin
-      if not Assigned(Factory) then
-        Factory := DefaultCategoryFactory;
-      Result           := Factory.MakeNewCategoryInstance(Name);
+      if Factory <> nil then
+        LoggerFactory := Factory
+      else
+        LoggerFactory := DefaultLoggerFactory;
+      Result           := LoggerFactory.MakeNewLoggerInstance(Name);
       Result.Hierarchy := Self;
-      FCategories.AddObject(Name, Result);
+      FLoggers.AddObject(Name, Result);
       UpdateParent(Result);
     end;
   finally
@@ -1521,54 +1899,56 @@ begin
 end;
 
 { Return a renderer for the named class. }
-function TLogHierarchy.GetRenderer(RenderedClass: TClass): ILogRenderer;
+function TLogHierarchy.GetRenderer(const RenderedClass: TClass): ILogRenderer;
 var
   Index: Integer;
+  Rendered: TClass;
 begin
-  Result := nil;
+  Result   := nil;
+  Rendered := RenderedClass;
   repeat
-    Index := FRenderedClasses.IndexOf(RenderedClass);
+    Index := FRenderedClasses.IndexOf(Rendered);
     if Index > -1 then
-      Result := ILogRenderer(FRenderers[Index])
+      Result   := ILogRenderer(FRenderers[Index])
     else
-      RenderedClass := RenderedClass.ClassParent;
-  until Assigned(Result) or (RenderedClass.ClassName = 'TObject');
+      Rendered := Rendered.ClassParent;
+  until (Result <> nil) or (Rendered.ClassName = 'TObject');
 end;
 
-{ Check for global disabling of priorities. }
-function TLogHierarchy.IsDisabled(Level: Integer): Boolean;
+{ Check for global disabling of levels. }
+function TLogHierarchy.IsDisabled(const LogLevel: Integer): Boolean;
 begin
-  Result := (FDisable >= Level);
+  Result := (FThreshold.Level > LogLevel);
 end;
 
-{ Set the disable override value - no priorities can then be disabled. }
-procedure TLogHierarchy.OverrideDisable;
+{ Remove a previously register event listener. }
+procedure TLogHierarchy.RemoveHierarchyEventListener(
+  const Listener: ILogHierarchyEventListener);
 begin
-  LogLog.Debug(OverrideDisableMsg);
-  FDisable := DisableOverride;
+  FListeners.Remove(Listener);
 end;
 
 { Reset all values contained in this hierarchy instance to their default.
-  This removes all appenders from all categories, sets the priority of
-  all non-root categories to nil, sets their additivity flag to true and
-  sets the priority of the root category to Debug.
+  This removes all appenders from all loggers, sets the level of
+  all non-root loggers to nil, sets their additivity flag to true and
+  sets the level of the root logger to Debug.
   Moreover, message disabling is set its default 'off' value.
-  Existing categories are not removed. They are just reset. }
+  Existing loggers are not removed. They are just reset. }
 procedure TLogHierarchy.ResetConfiguration;
 var
   Index: Integer;
 begin
   EnterCriticalSection(FCriticalHierarchy);
   try
-    Root.Priority := Debug;
-    FDisable      := DisableOff;
+    Root.Level := Debug;
+    Threshold  := All;
 
     Shutdown;  { Nested locks are OK }
 
-    for Index := 0 to FCategories.Count - 1 do
-      with TLogCategory(FCategories.Objects[Index]) do
+    for Index := 0 to FLoggers.Count - 1 do
+      with TLogLogger(FLoggers.Objects[Index]) do
       begin
-        Priority := nil;
+        Level    := nil;
         Additive := True;
       end;
     FRenderedClasses.Clear;
@@ -1578,8 +1958,27 @@ begin
   end;
 end;
 
+{ Set the overall logging level. Cannot set a nil threshold. }
+procedure TLogHierarchy.SetThreshold(const Level: TLogLevel);
+begin
+  if Level <> nil then
+    FThreshold := Level;
+end;
+
+{ Set the overall hierarchy logging level by name. }
+procedure TLogHierarchy.SetThreshold(const Name: string);
+var
+  Level: TLogLevel;
+begin
+  Level := TLogLevel.GetLevel(LowerCase(Name), nil);
+  if Level = nil then
+    LogLog.Warn(Format(ConvertErrorMsg, [Name]))
+  else
+    Threshold := Level;
+end;
+
 { Shutting down a hierarchy will safely close and remove
-  all appenders in all categories including the root category.
+  all appenders in all loggers including the root logger.
   Some appenders need to be closed before the application exists,
   otherwise, pending logging events might be lost. }
 procedure TLogHierarchy.Shutdown;
@@ -1590,8 +1989,8 @@ begin
   try
     Root.CloseAllAppenders;
     Root.RemoveAllAppenders;
-    for Index := 0 to FCategories.Count - 1 do
-      with TLogCategory(FCategories.Objects[Index]) do
+    for Index := 0 to FLoggers.Count - 1 do
+      with TLogLogger(FLoggers.Objects[Index]) do
       begin
         CloseAllAppenders;
         RemoveAllAppenders;
@@ -1601,11 +2000,11 @@ begin
   end;
 end;
 
-{ Set the parent for the specified category.
-  The category hierarchy is based on names separated by a dot (.).
-  The root is the ultimate parent. Otherwise, we use GetInstance to
+{ Set the parent for the specified logger.
+  The logger hierarchy is based on names separated by a dot (.).
+  The root is the ultimate parent. Otherwise, we use GetLogger to
   return a reference to the immediate parent (and create it if necessary). }
-procedure TLogHierarchy.UpdateParent(Cat: TLogCategory);
+procedure TLogHierarchy.UpdateParent(const Logger: TLogLogger);
 var
   Index: Integer;
 
@@ -1619,11 +2018,11 @@ var
   end;
 
 begin
-  Index := LastDot(Cat.Name);
+  Index := LastDot(Logger.Name);
   if Index = 0 then
-    Cat.FParent := Root
+    Logger.FParent := Root
   else
-    Cat.FParent := GetInstance(Copy(Cat.Name, 1, Index - 1));
+    Logger.FParent := GetLogger(Copy(Logger.Name, 1, Index - 1));
 end;
 
 { TLogCustomLayout ------------------------------------------------------------}
@@ -1672,32 +2071,36 @@ end;
 
 { TLogSimpleLayout ------------------------------------------------------------}
 
-{ Show event priority and message. }
-function TLogSimpleLayout.Format(Event: TLogEvent): string;
+{ Show event level and message. }
+function TLogSimpleLayout.Format(const Event: TLogEvent): string;
 begin
-  Result := Event.Priority.Name + ' - ' + Event.Message + CRLF;
+  Result := Event.Level.Name + ' - ' + Event.Message + CRLF;
 end;
 
 { TLogHTMLLayout --------------------------------------------------------------}
 
 { Write a HTML table row for each event. }
-function TLogHTMLLayout.Format(Event: TLogEvent): string;
+function TLogHTMLLayout.Format(const Event: TLogEvent): string;
 var
   ErrorMessage: string;
 begin
   Result := '<tr><td>' + IntToStr(Event.ElapsedTime) +
     '</td><td>' + IntToStr(Event.ThreadId) + '</td><td>';
-  if Event.Priority.IsGreaterOrEqual(Warn) then
-    Result := Result + '<font color="#FF0000">' + Event.Priority.Name +
+  if Event.Level = Debug then
+    Result := Result + '<font color="#339933">' + Event.Level.Name +
       '</font>'
+  else if Event.Level.IsGreaterOrEqual(Warn) then
+    Result := Result + '<font color="#993300"><strong>' + Event.Level.Name +
+      '</strong></font>'
   else
-    Result := Result + Event.Priority.Name;
-  Result := Result + '</td><td>' + Event.Category.Name + '</td>' +
+    Result := Result + Event.Level.Name;
+  Result := Result + '</td><td>' + Event.LoggerName + '</td>' +
     '<td>' + Event.NDC + '</td><td>' + Event.Message + '</td></tr>' + CRLF;
   ErrorMessage := Event.ErrorMessage;
   if ErrorMessage <> '' then
-    Result := Result + '<tr><td colspan="6">' + ErrorMessage + '</td></tr>' +
-      CRLF;
+    Result := Result + '<tr><td bgcolor="#993300" ' +
+      'style="color: White; font-size: xx-small;" colspan="6">' +
+      ErrorMessage + '</td></tr>' + CRLF;
 end;
 
 { Returns the content type output by this layout, i.e 'text/html'. }
@@ -1709,16 +2112,31 @@ end;
 { Returns appropriate HTML footers. }
 function TLogHTMLLayout.GetFooter: string;
 begin
-  Result := '</table></body></html>' + CRLF;
+  Result := '</table>' + CRLF + '</body>' + CRLF + '</html>' + CRLF;
 end;
 
 { Returns appropriate HTML headers. }
 function TLogHTMLLayout.GetHeader: string;
 begin
-  Result := '<html><body>' + CRLF +
-    '<table border="1" cellpadding="2">' + CRLF +
+  Result := '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" ' +
+    '"http://www.w3.org/TR/html4/loose.dtd">' + CRLF +
+    '<html>' + CRLF + '<head>' + CRLF +
+    '<title>' + Title + '</title>' + CRLF +
+    '<style type="text/css">' + CRLF +
+    '<!--' + CRLF +
+    'body, table {font-family: arial,sans-serif; font-size: x-small;}' + CRLF +
+    'th {background: #336699; color: #FFFFFF; text-align: left;}' + CRLF +
+    '-->' + CRLF +
+    '</style>' + CRLF +
+    '</head>' + CRLF +
+    '<body bgcolor="#FFFFFF" topmargin="6" leftmargin="6">' + CRLF +
+    '<hr size="1" noshade>' + CRLF +
+    SessionStartMsg + ' ' + DateTimeToStr(Now) + '<br>' + CRLF +
+    '<br>' + CRLF +
+    '<table cellspacing="0" cellpadding="4" border="1" ' +
+    'bordercolor="#224466" width="100%">' + CRLF +
     '<tr><th>' + TimeHdr + '</th><th>' + ThreadHdr + '</th>' +
-    '<th>' + PriorityHdr + '</th><th>' + CategoryHdr + '</th>' +
+    '<th>' + LevelHdr + '</th><th>' + LoggerHdr + '</th>' +
     '<th>' + NDCHdr + '</th><th>' + MessageHdr + '</th></tr>' + CRLF;
 end;
 
@@ -1729,12 +2147,20 @@ begin
   Result := False;
 end;
 
+{ Set the title for the HTML page. }
+procedure TLogHTMLLayout.SetOption(const Name, Value: string);
+begin
+  inherited SetOption(Name, Value);
+  if (Name = TitleOpt) and (Value <> '') then
+    Title := Value;
+end;
+
 { TLogPatternLayout -----------------------------------------------------------}
 
 type
-  TPatternPart = (ppText, ppCategory, ppClassName, ppDate, ppException,
+  TPatternPart = (ppText, ppLogger, ppClassName, ppDate, ppException,
     ppFileName, ppLocation, ppLine, ppMessage, ppMethod, ppNewLine,
-    ppPriority, ppRuntime, ppThread, ppNDC, ppPercent);
+    ppLevel, ppRuntime, ppThread, ppNDC, ppPercent);
 
 const
   { These characters identify the types above. }
@@ -1742,7 +2168,7 @@ const
   { These characters substitute for those above in the processed format. }
   PatternReplacements = ' ssssssdssssddss';
 
-constructor TLogPatternLayout.Create(Pattern: string);
+constructor TLogPatternLayout.Create(const Pattern: string);
 begin
   inherited Create;
   Self.Pattern := Pattern;
@@ -1756,7 +2182,7 @@ end;
 
 { Compile the formatted string from the specified pattern and its parts.
   Pattern characters are as follows:
-  c - Category name, e.g. myapp.more
+  c - Logger name, e.g. myapp.more
   C - Class name of caller - not implemented
   e - Message from the exception associated with the event
   d - Current date and time, using date format set as option
@@ -1766,16 +2192,16 @@ end;
   m - Message associated with event
   M - Method name within calling class - not implemented
   n - New line
-  p - Priority name
+  p - Level name
   r - Runtime in milliseconds since start
   t - Thread id
   x - Nested diagnostic context (NDC)
   % - The percent character
   Pattern characters are preceded by a percent sign (%) and may contain
   field formatting characters per Delphi's Format function, e.g. %-7p
-  displays the event's priority, left justified in a 7 character field.
+  displays the event's level, left justified in a 7 character field.
   Other text is displayed as is. }
-function TLogPatternLayout.Format(Event: TLogEvent): string;
+function TLogPatternLayout.Format(const Event: TLogEvent): string;
 var
   Index: Integer;
 begin
@@ -1783,8 +2209,8 @@ begin
   for Index := 0 to FPatternParts.Count - 1 do
     case TPatternPart(FPatternParts.Objects[Index]) of
       ppText:      Result := Result + FPatternParts[Index];
-      ppCategory:  Result := Result +
-        SysUtils.Format(FPatternParts[Index], [Event.Category.Name]);
+      ppLogger:  Result := Result +
+        SysUtils.Format(FPatternParts[Index], [Event.LoggerName]);
       ppClassName: Result := Result +
         SysUtils.Format(FPatternParts[Index], [ValueUnknownMsg]);
       ppDate:      Result := Result + FormatDateTime(DateFormat, Now);
@@ -1801,8 +2227,8 @@ begin
       ppMethod:    Result := Result +
         SysUtils.Format(FPatternParts[Index], [ValueUnknownMsg]);
       ppNewLine:   Result := Result + CRLF;
-      ppPriority:  Result := Result +
-        SysUtils.Format(FPatternParts[Index], [Event.Priority.Name]);
+      ppLevel:  Result := Result +
+        SysUtils.Format(FPatternParts[Index], [Event.Level.Name]);
       ppRuntime:   Result := Result + SysUtils.Format(FPatternParts[Index],
         [Event.ElapsedTime]);
       ppThread:    Result := Result +
@@ -1827,7 +2253,7 @@ begin
 end;
 
 { Extract the portions of the pattern for easier processing later. }
-procedure TLogPatternLayout.SetPattern(Pattern: string);
+procedure TLogPatternLayout.SetPattern(const Pattern: string);
 var
   Index: Integer;
   Part: string;
@@ -1872,10 +2298,31 @@ begin
   end;
 end;
 
+{ TLogCustomErrorHandler ------------------------------------------------------}
+
+procedure TLogCustomErrorHandler.SetAppender(const Appender: ILogAppender);
+begin
+  FAppender := Appender;
+  LogLog.Debug(Format(SettingAppenderMsg, [Appender.Name]));
+end;
+
+procedure TLogCustomErrorHandler.SetBackupAppender(
+  const BackupAppender: ILogAppender);
+begin
+  FBackupAppender := BackupAppender;
+  LogLog.Debug(Format(SettingBackupMsg, [BackupAppender.Name]));
+end;
+
+procedure TLogCustomErrorHandler.SetLogger(const Logger: TLogLogger);
+begin
+  FLogger := Logger;
+  LogLog.Debug(Format(SettingLoggerMsg, [Logger.Name]));
+end;
+
 { TLogOnlyOnceErrorHandler ----------------------------------------------------}
 
 { Only first error sent here is reported. }
-procedure TLogOnlyOnceErrorHandler.Error(Message: string);
+procedure TLogOnlyOnceErrorHandler.Error(const Message: string);
 begin
   if not FSeenError then
   begin
@@ -1884,14 +2331,73 @@ begin
   end;
 end;
 
-procedure TLogOnlyOnceErrorHandler.Error(Message: string; Err: Exception;
-  ErrorCode: Integer);
+procedure TLogOnlyOnceErrorHandler.Error(const Message: string;
+  const Err: Exception; const ErrorCode: Integer; const Event: TLogEvent);
 begin
   if not FSeenError then
     Error(Format('%s - (%d) %s', [Message, Err.Message, ErrorCode]));
 end;
 
+{ TLogFallbackErrorHandler ----------------------------------------------------}
+
+constructor TLogFallbackErrorHandler.Create;
+begin
+  inherited Create;
+  FLoggers             := TObjectList.Create;
+{$IFDEF DELPHI5_UP}
+  FLoggers.OwnsObjects := False;
+{$ENDIF}
+end;
+
+destructor TLogFallbackErrorHandler.Destroy;
+begin
+  FLoggers.Free;
+  inherited Destroy;
+end;
+
+{ Fallback on an alternative appender if an error arises. }
+procedure TLogFallbackErrorHandler.Error(const Message: string);
+var
+  Index: Integer;
+begin
+  LogLog.Debug(Format(FallbackMsg, [Message]));
+  for Index := 0 to FLoggers.Count - 1 do
+    with TLogLogger(FLoggers[Index]) do
+    begin
+      LogLog.Debug(Format(FallbackReplaceMsg,
+        [FAppender.Name, FBackupAppender.Name, Name]));
+      RemoveAppender(FAppender);
+      AddAppender(FBackupAppender);
+    end;
+end;
+
+procedure TLogFallbackErrorHandler.Error(const Message: string;
+  const Err: Exception; const ErrorCode: Integer; const Event: TLogEvent);
+begin
+  Error(Format('%s - (%d) %s', [Message, Err.Message, ErrorCode]));
+end;
+
+{ Add to the list of loggers to search for on failure. }
+procedure TLogFallbackErrorHandler.SetLogger(const Logger: TLogLogger);
+begin
+  if FLoggers.IndexOf(Logger) = -1 then
+  begin
+    FLoggers.Add(Logger);
+    LogLog.Debug(Format(AddingLoggerMsg, [Logger.Name]));
+  end;
+end;
+
 { TLogCustomFilter ------------------------------------------------------------}
+
+const
+  Acceptance: array [Boolean] of TLogFilterDecision = (fdDeny, fdAccept);
+
+{ Initialisation. }
+constructor TLogCustomFilter.Create(const AcceptOnMatch: Boolean);
+begin
+  inherited Create;
+  Self.AcceptOnMatch := AcceptOnMatch;
+end;
 
 { Set common option. }
 procedure TLogCustomFilter.SetOption(const Name, Value: string);
@@ -1901,74 +2407,124 @@ begin
     FAcceptOnMatch := StrToBool(Value, True);
 end;
 
-{ TLogPriorityFilter ----------------------------------------------------------}
+{ TLogDenyAllFilter -----------------------------------------------------------}
 
-constructor TLogPriorityFilter.Create(Match: TLogPriority;
-  AcceptOnMatch: Boolean);
+{ Deny all messages. }
+function TLogDenyAllFilter.Decide(const Event: TLogEvent): TLogFilterDecision;
 begin
-  inherited Create;
-  Self.AcceptOnMatch := AcceptOnMatch;
-  Self.Match         := Match;
+  Result := fdDeny;
 end;
 
-{ Check for the matching priority, then accept or deny based on the flag. }
-function TLogPriorityFilter.Decide(Event: TLogEvent): TLogFilterDecision;
+{ TLogLevelMatchFilter --------------------------------------------------------}
+
+{ Initialisation. }
+constructor TLogLevelMatchFilter.Create(const MatchLevel: TLogLevel;
+  const AcceptOnMatch: Boolean);
 begin
-  if Assigned(Match) and (Match = Event.Priority) then
-  begin
-    if AcceptOnMatch then
-      Result := fdAccept
-    else
-      Result := fdDeny;
-  end
+  inherited Create(AcceptOnMatch);
+  Self.MatchLevel := MatchLevel;
+end;
+
+{ Check for the matching level, then accept or deny based on the flag. }
+function TLogLevelMatchFilter.Decide(const Event: TLogEvent):
+  TLogFilterDecision;
+begin
+  if (MatchLevel <> nil) and (MatchLevel.Level = Event.Level.Level) then
+    Result := Acceptance[AcceptOnMatch]
   else
     Result := fdNeutral;
 end;
 
-procedure TLogPriorityFilter.SetOption(const Name, Value: string);
+{ Set matching level from options. }
+procedure TLogLevelMatchFilter.SetOption(const Name, Value: string);
 begin
   inherited SetOption(Name, Value);
   if Name = MatchOpt then
-    FMatch := GetPriority(Value);
+    FMatchLevel := TLogLevel.GetLevel(Value);
+end;
+
+{ TLogLevelRangeFilter --------------------------------------------------------}
+
+{ Initialisation. }
+constructor TLogLevelRangeFilter.Create(const MaxLevel, MinLevel: TLogLevel;
+  const AcceptOnMatch: Boolean);
+begin
+  inherited Create(AcceptOnMatch);
+  Self.MaxLevel := MaxLevel;
+  Self.MinLevel := MinLevel;
+end;
+
+{ Check for the matching levels, then accept or deny based on the flag. }
+function TLogLevelRangeFilter.Decide(const Event: TLogEvent):
+  TLogFilterDecision;
+begin
+  if (MaxLevel <> nil) and (MaxLevel.Level >= Event.Level.Level) and
+      (MinLevel <> nil) and (MinLevel.Level <= Event.Level.Level) then
+    Result := Acceptance[AcceptOnMatch]
+  else
+    Result := fdNeutral;
+end;
+
+{ Set matching levels from options. }
+procedure TLogLevelRangeFilter.SetOption(const Name, Value: string);
+begin
+  inherited SetOption(Name, Value);
+  if Name = MaxOpt then
+    FMaxLevel := TLogLevel.GetLevel(Value)
+  else if Name = MinOpt then
+    FMinLevel := TLogLevel.GetLevel(Value);
 end;
 
 { TLogStringFilter ------------------------------------------------------------}
 
-constructor TLogStringFilter.Create(Match: string; AcceptOnMatch: Boolean);
+{ Initialisation. }
+constructor TLogStringFilter.Create(const Match: string;
+  const IgnoreCase: Boolean; const AcceptOnMatch: Boolean);
 begin
-  inherited Create;
-  Self.AcceptOnMatch := AcceptOnMatch;
-  Self.Match         := Match;
+  inherited Create(AcceptOnMatch);
+  Self.Match      := Match;
+  Self.IgnoreCase := IgnoreCase;
 end;
 
 { Check for the matching string, then accept or deny based on the flag. }
-function TLogStringFilter.Decide(Event: TLogEvent): TLogFilterDecision;
+function TLogStringFilter.Decide(const Event: TLogEvent): TLogFilterDecision;
+var
+  MatchOn, MatchWith: string;
 begin
-  if Pos(Match, Event.Message) > 0 then
+  if IgnoreCase then
   begin
-    if AcceptOnMatch then
-      Result := fdAccept
-    else
-      Result := fdDeny;
+    MatchOn   := LowerCase(Match);
+    MatchWith := LowerCase(Event.Message);
   end
+  else
+  begin
+    MatchOn   := Match;
+    MatchWith := Event.Message;
+  end;
+  if Pos(MatchOn, MatchWith) > 0 then
+    Result := Acceptance[AcceptOnMatch]
   else
     Result := fdNeutral;
 end;
 
+{ Set string value to match and case-sensitivity from options. }
 procedure TLogStringFilter.SetOption(const Name, Value: string);
 begin
   inherited SetOption(Name, Value);
   if Name = MatchOpt then
-    FMatch := Value;
+    FMatch := Value
+  else if Name = IgnoreCaseOpt then
+    FIgnoreCase := StrToBool(Value, FIgnoreCase);
 end;
 
 { TLogCustomAppender ----------------------------------------------------------}
 
-constructor TLogCustomAppender.Create(Name: string; Layout: ILogLayout);
+constructor TLogCustomAppender.Create(const Name: string;
+  const Layout: ILogLayout);
 begin
   inherited Create;
   FName := Name;
-  if Assigned(Layout) then
+  if Layout <> nil then
     FLayout := Layout
   else
     FLayout := TLogSimpleLayout.Create;
@@ -1983,14 +2539,14 @@ begin
 end;
 
 { Add a filter to the end of the filter list. }
-procedure TLogCustomAppender.AddFilter(Filter: ILogFilter);
+procedure TLogCustomAppender.AddFilter(const Filter: ILogFilter);
 begin
   if FFilters.IndexOf(Filter) = -1 then
     FFilters.Add(Filter);
 end;
 
 { Log in appender-specific way. }
-procedure TLogCustomAppender.Append(Event: TLogEvent);
+procedure TLogCustomAppender.Append(const Event: TLogEvent);
 begin
   EnterCriticalSection(FCriticalAppender);
   try
@@ -2011,7 +2567,7 @@ begin
     LogLog.Warn(ClosedAppenderMsg);
     Exit;
   end;
-  if not Assigned(Layout) then
+  if (Layout = nil) and RequiresLayout then
   begin
     ErrorHandler.Error(Format(NoLayoutMsg, [Name]));
     Exit;
@@ -2020,7 +2576,7 @@ begin
 end;
 
 { Only log if any/all filters allow it. }
-function TLogCustomAppender.CheckFilters(Event: TLogEvent): Boolean;
+function TLogCustomAppender.CheckFilters(const Event: TLogEvent): Boolean;
 var
   Index: Integer;
 begin
@@ -2055,7 +2611,7 @@ begin
   end;
 end;
 
-procedure TLogCustomAppender.DoAppend(Event: TLogEvent);
+procedure TLogCustomAppender.DoAppend(const Event: TLogEvent);
 begin
   DoAppend(Layout.Format(Event));
 end;
@@ -2101,7 +2657,7 @@ begin
 end;
 
 { Delete a filter from the appender's list. }
-procedure TLogCustomAppender.RemoveFilter(Filter: ILogFilter);
+procedure TLogCustomAppender.RemoveFilter(const Filter: ILogFilter);
 begin
   FFilters.Remove(Filter);
 end;
@@ -2110,22 +2666,19 @@ end;
   a layout. If this method returns True, meaning that a layout is required,
   then the configurator will configure a layout using the configuration
   information at its disposal.  If this method returns False, meaning that
-  a layout is not required, then layout configuration will be skipped even
-  if there is available layout configuration information at the disposal
-  of the configurator.
-  In the rather exceptional case, where the appender implementation admits a
-  layout but can also work without it, then the appender should return True. }
+  a layout is not required, then layout configuration will be used if available. }
 function TLogCustomAppender.RequiresLayout: Boolean;
 begin
   Result := True;
 end;
 
 { Set the error handler for this appender - it cannot be nil. }
-procedure TLogCustomAppender.SetErrorHandler(ErrorHandler: ILogErrorHandler);
+procedure TLogCustomAppender.SetErrorHandler(
+  const ErrorHandler: ILogErrorHandler);
 begin
   EnterCriticalSection(FCriticalAppender);
   try
-    if not Assigned(ErrorHandler) then
+    if ErrorHandler = nil then
       LogLog.Warn(NilErrorHandlerMsg)
     else
       FErrorHandler := ErrorHandler;
@@ -2135,49 +2688,49 @@ begin
 end;
 
 { Set the layout for this appender. }
-procedure TLogCustomAppender.SetLayout(Layout: ILogLayout);
+procedure TLogCustomAppender.SetLayout(const Layout: ILogLayout);
 begin
   FLayout := Layout;
 end;
 
 { Set the name of this appender. The name is used by other
   components to identify this appender. }
-procedure TLogCustomAppender.SetName(Name: string);
+procedure TLogCustomAppender.SetName(const Name: string);
 begin
   FName := Name;
 end;
 
 procedure TLogCustomAppender.WriteFooter;
 begin
-  if Assigned(Layout) then
+  if Layout <> nil then
     DoAppend(Layout.Footer);
 end;
 
 procedure TLogCustomAppender.WriteHeader;
 begin
-  if Assigned(Layout) then
+  if Layout <> nil then
     DoAppend(Layout.Header);
 end;
 
 { TLogNullAppender ------------------------------------------------------------}
 
 { Do nothing. }
-procedure TLogNullAppender.DoAppend(Message: string);
+procedure TLogNullAppender.DoAppend(const Message: string);
 begin
 end;
 
 { TLogODSAppender -------------------------------------------------------------}
 
 { Log to debugging output. }
-procedure TLogODSAppender.DoAppend(Message: string);
+procedure TLogODSAppender.DoAppend(const Message: string);
 begin
   OutputDebugString(PChar(Message));
 end;
 
 { TLogStreamAppender ----------------------------------------------------------}
 
-constructor TLogStreamAppender.Create(Name: string; Stream: TStream;
-  Layout: ILogLayout);
+constructor TLogStreamAppender.Create(const Name: string; const Stream: TStream;
+  const Layout: ILogLayout);
 begin
   inherited Create(Name, Layout);
   FStream := Stream;
@@ -2191,11 +2744,11 @@ begin
 end;
 
 { Log to the attached stream. }
-procedure TLogStreamAppender.DoAppend(Message: string);
+procedure TLogStreamAppender.DoAppend(const Message: string);
 var
   StrStream: TStringStream;
 begin
-  if Assigned(FStream) then
+  if FStream <> nil then
   begin
     StrStream := TStringStream.Create(Message);
     try
@@ -2209,8 +2762,8 @@ end;
 { TLogFileAppender ------------------------------------------------------------}
 
 { Create a file stream and delegate to the parent class. }
-constructor TLogFileAppender.Create(Name, FileName: string; Layout: ILogLayout;
-  Append: Boolean);
+constructor TLogFileAppender.Create(const Name, FileName: string;
+  const Layout: ILogLayout; const Append: Boolean);
 begin
   inherited Create(Name, nil, Layout);
   FAppend := Append;
@@ -2225,10 +2778,10 @@ begin
     if (Name = AppendOpt) and (Value <> '') then
     begin
       FAppend := StrToBool(Value, FAppend);
-    end;
-    if (Name = FileNameOpt) and (Value <> '') then
+    end
+    else if (Name = FileNameOpt) and (Value <> '') then
     begin
-      if Assigned(FStream) then
+      if FStream <> nil then
         FStream.Free;
       FFileName := Value;
       if FAppend and FileExists(FFileName) then
@@ -2249,12 +2802,12 @@ end;
 { OptionConvertors ------------------------------------------------------------}
 
 { Convert string value to Boolean, with default. }
-function StrToBool(Value: string; Default: Boolean): Boolean;
+function StrToBool(Value: string; const Default: Boolean): Boolean;
 begin
-  Value := UpperCase(Value);
-  if (Value = 'TRUE') or (Value = 'YES') then
+  Value := LowerCase(Value);
+  if (Value = 'true') or (Value = 'yes') then
     Result := True
-  else if (Value = 'FALSE') or (Value = 'NO') then
+  else if (Value = 'false') or (Value = 'no') then
     Result := False
   else
     Result := Default;
@@ -2281,8 +2834,8 @@ end;
 constructor TLogBasicConfigurator.Create;
 begin
   inherited Create;
-  FCategoryFactory := TLogDefaultCategoryFactory.Create;
-  FRegistry        := TStringList.Create;
+  FLoggerFactory := TLogDefaultLoggerFactory.Create;
+  FRegistry      := TStringList.Create;
 end;
 
 destructor TLogBasicConfigurator.Destroy;
@@ -2296,8 +2849,8 @@ begin
 end;
 
 { Used by subclasses to add a renderer to the hierarchy passed as parameter. }
-procedure TLogBasicConfigurator.AddRenderer(Hierarchy: TLogHierarchy;
-  RenderedName, RendererName: string);
+procedure TLogBasicConfigurator.AddRenderer(const Hierarchy: TLogHierarchy;
+  const RenderedName, RendererName: string);
 var
   Rendered: TClass;
   Renderer: ILogRenderer;
@@ -2305,12 +2858,12 @@ begin
   LogLog.Debug(Format(RendererMsg, [RendererName, RenderedName]));
   Rendered := FindRendered(RenderedName);
   Renderer := FindRenderer(RendererName);
-  if not Assigned(Rendered) then
+  if Rendered = nil then
   begin
     LogLog.Error(Format(NoRenderedCreatedMsg, [RenderedName]));
     Exit;
   end;
-  if not Assigned(Renderer) then
+  if Renderer = nil then
   begin
     LogLog.Error(Format(NoRendererCreatedMsg, [RendererName]));
     Exit;
@@ -2320,7 +2873,7 @@ begin
 end;
 
 { Return a reference to an already defined named appender, or nil if none. }
-function TLogBasicConfigurator.AppenderGet(Name: string): ILogAppender;
+function TLogBasicConfigurator.AppenderGet(const Name: string): ILogAppender;
 var
   Index: Integer;
 begin
@@ -2332,20 +2885,24 @@ begin
 end;
 
 { Save reference to named appender. }
-procedure TLogBasicConfigurator.AppenderPut(Appender: ILogAppender);
+procedure TLogBasicConfigurator.AppenderPut(const Appender: ILogAppender);
 begin
   FRegistry.AddObject(Appender.Name, TAppender.Create(Appender));
 end;
 
-{ Add appender to the root category. If no appender is provided,
+{ Add appender to the root logger. If no appender is provided,
   add a TLogODSAppender that uses TLogPatternLayout with the
-  TTCCPattern and prints to debugging output for the root category. }
-class procedure TLogBasicConfigurator.Configure(Appender: ILogAppender);
+  TTCCPattern and prints to debugging output for the root logger. }
+class procedure TLogBasicConfigurator.Configure(const Appender: ILogAppender);
+var
+  NewAppender: ILogAppender;
 begin
-  if not Assigned(Appender) then
-    Appender := TLogODSAppender.Create('ODS',
-      TLogPatternLayout.Create(TTCCPattern));
-  DefaultHierarchy.Root.AddAppender(Appender);
+  if Appender = nil then
+    NewAppender := TLogODSAppender.Create('ODS',
+      TLogPatternLayout.Create(TTCCPattern))
+  else
+    NewAppender := Appender;
+  DefaultHierarchy.Root.AddAppender(NewAppender);
 end;
 
 { Reset the default hierarchy to its default. }
@@ -2355,33 +2912,30 @@ begin
 end;
 
 { Initialise standard global settings. }
-procedure TLogBasicConfigurator.SetGlobalProps(Hierarchy: TLogHierarchy;
-  FactoryClassName, Debug, Disable, DisableOverride: string);
+procedure TLogBasicConfigurator.SetGlobalProps(const Hierarchy: TLogHierarchy;
+  const FactoryClassName, Debug, Threshold: string);
 begin
   if FactoryClassName <> '' then
   begin
-    FCategoryFactory := FindCategoryFactory(FactoryClassName);
-    if Assigned(FCategoryFactory) then
-      LogLog.Debug(Format(CategoryFactoryMsg, [FactoryClassName]))
+    FLoggerFactory := FindLoggerFactory(FactoryClassName);
+    if FLoggerFactory <> nil then
+      LogLog.Debug(Format(LoggerFactoryMsg, [FactoryClassName]))
     else
-      FCategoryFactory := TLogDefaultCategoryFactory.Create;
+      FLoggerFactory := TLogDefaultLoggerFactory.Create;
   end;
 
   if Debug <> '' then
-    LogLog.InternalDebugging := StrToBool(Debug, True);
+    LogLog.InternalDebugging := StrToBool(Debug, False);
 
-  { Check if the config file overrides the shipped code flag. }
-  if (DisableOverride <> '') and StrToBool(DisableOverride, True) then
-    Hierarchy.OverrideDisable;
-
-  if (DisableOverride = '') and (Disable <> '') then
-    Hierarchy.Disable(GetPriority(Disable));
+  if Threshold <> '' then
+    DefaultHierarchy.Threshold := TLogLevel.GetLevel(LowerCase(Threshold));
 end;
 
 { TLogPropertyConfigurator ----------------------------------------------------}
 
 { Split the supplied value into tokens with specified delimiters. }
-procedure Tokenise(Value: string; var Items: TStringList; Delimiters: string);
+procedure Tokenise(const Value: string; const Items: TStringList;
+  const Delimiters: string);
 var
   Index: Integer;
   Item: string;
@@ -2401,8 +2955,8 @@ end;
 
 { Extract properties with the given prefix from the supplied list
   and send them to the option handler. }
-procedure SetSubProps(Prefix: string; Props: TStringList;
-  Handler: ILogOptionHandler);
+procedure SetSubProps(const Prefix: string; const Props: TStringList;
+  const Handler: ILogOptionHandler);
 var
   Index: Integer;
 begin
@@ -2414,7 +2968,7 @@ end;
 
 { Read configuration options from a file.
   See DoConfigure for the expected format. }
-class procedure TLogPropertyConfigurator.Configure(Filename: string);
+class procedure TLogPropertyConfigurator.Configure(const Filename: string);
 var
   Config: TLogPropertyConfigurator;
 begin
@@ -2428,7 +2982,7 @@ end;
 
 { Read configuration options from properties.
   See DoConfigure for the expected format. }
-class procedure TLogPropertyConfigurator.Configure(Props: TStringList);
+class procedure TLogPropertyConfigurator.Configure(const Props: TStringList);
 var
   Config: TLogPropertyConfigurator;
 begin
@@ -2440,22 +2994,22 @@ begin
   end;
 end;
 
-procedure TLogPropertyConfigurator.ConfigureRootCategory(Props: TStringList;
-  Hierarchy: TLogHierarchy);
+procedure TLogPropertyConfigurator.ConfigureRootLogger(const Props: TStringList;
+  const Hierarchy: TLogHierarchy);
 var
   Value: string;
 begin
-  Value := Props.Values[RootCategoryKey];
+  Value := Props.Values[RootLoggerKey];
   if Value = '' then
-    LogLog.Debug(NoRootCategoryMsg)
+    LogLog.Debug(NoRootLoggerMsg)
   else
-    ParseCategory(Props, Hierarchy.Root, Value);
+    ParseLogger(Props, Hierarchy.Root, Value);
 end;
 
 { Read configuration options from a file.
   See DoConfigure below for the expected format. }
-procedure TLogPropertyConfigurator.DoConfigure(FileName: string;
-  Hierarchy: TLogHierarchy);
+procedure TLogPropertyConfigurator.DoConfigure(const FileName: string;
+  const Hierarchy: TLogHierarchy);
 var
   Props: TStringList;
 begin
@@ -2483,22 +3037,18 @@ end;
 
   Global Settings
 
-  The user can override any of the Hierarchy.Disable family of methods
-  by setting the key 'log4d.disableOverride' to TRUE or any value
-  other than FALSE. As in:
+  Where level is used below it indicates one of the following values:
 
-  log4d.disableOverride=TRUE
+  all|fatal|error|warn|info|debug|off|<custom level name>
 
-  To set a global disabling of priorities use the following syntax:
+  To set a global threshold for all loggers use the following syntax
+  (defaults to all):
 
-  log4d.disable=FATAL|ERROR|WARN|INFO|DEBUG
-
-  The disable override, as its name suggests, overrides any setting made
-  using the above entry.
+  log4d.threshold=level
 
   Logging of internal debugging events can be enabled with the following:
 
-  log4d.debug=TRUE
+  log4d.configDebug=true
 
   Appender configuration
 
@@ -2533,54 +3083,53 @@ end;
     :
   log4d.appender.appenderName.filterx.optionN=valueN
 
-  Configuring categories
+  Configuring loggers
 
-  The syntax for configuring the root category is:
+  The syntax for configuring the root logger is:
 
-  log4d.rootCategory=[FATAL|ERROR|WARN|INFO|DEBUG],appenderName,appenderName,...
+  log4d.rootLogger=[level],appenderName[,appenderName]...
 
-  This syntax means that one of the strings values ERROR, WARN, INFO, or
-  DEBUG can be supplied followed by appender names separated by commas.
+  This syntax means that one of the level values (e.g. error, info, or
+  debug) can be supplied followed by appender name(s) separated by commas.
 
-  If one of the optional priority values is given, the root priority is set
-  to the corresponding priority. If no priority value is specified,
-  then the root priority remains untouched.
+  If one of the optional level values is given, the root level is set
+  to the corresponding level. If no level value is specified,
+  then the root level remains untouched.
 
-  The root category can be assigned multiple appenders.
+  The root logger can be assigned multiple appenders.
 
-  Each appenderName (separated by commas) will be added to the root category.
+  Each appenderName (separated by commas) will be added to the root logger.
   The named appender is defined using the appender syntax defined above.
 
-  For non-root categories the syntax is almost the same:
+  For non-root loggers the syntax is almost the same:
 
-  log4d.category.categoryName=[INHERITED|FATAL|ERROR|WARN|INFO|DEBUG],appenderName,appenderName,...
+  log4d.logger.loggerName=[inherited|level],appenderName[,appenderName]...
 
-  Thus, one of the usual priority values FATAL, ERROR, WARN, INFO, or
-  DEBUG can be optionally specified. For any any of these values the
-  named category is assigned the corresponding priority. In addition
-  however, the value INHERITED can be optionally specified which means
-  that named category should inherit its priority from the category hierarchy.
+  Thus, one of the usual level values can be optionally specified. For any
+  of these values the named logger is assigned the corresponding level.
+  In addition however, the value "inherited" can be optionally specified which
+  means that named logger should inherit its level from the logger hierarchy.
 
-  If no priority value is supplied, then the priority of the
-  named category remains untouched.
+  If no level value is supplied, then the level of the
+  named logger remains untouched.
 
-  By default categories inherit their priority from the hierarchy.
-  However, if you set the priority of a category and later decide
-  that that category should inherit its priority, then you should
-  specify INHERITED as the value for the priority value.
+  By default loggers inherit their level from the hierarchy.
+  However, if you set the level of a logger and later decide
+  that that logger should inherit its level, then you should
+  specify "inherited" as the value for the level value.
 
-  Similar to the root category syntax, each appenderName
-  (separated by commas) will be attached to the named category.
+  Similar to the root logger syntax, each appenderName
+  (separated by commas) will be attached to the named logger.
 
-  Category additivity is set in the following fashion:
+  Logger additivity is set in the following fashion:
 
-  log4d.additive.categoryName=TRUE|FALSE
+  log4d.additive.loggerName=true|false
 
   ObjectRenderers
 
-  You can customize the way message objects of a given type are converted to
+  You can customise the way message objects of a given type are converted to
   a string before being logged. This is done by specifying an object renderer
-  for the object type would like to customize. The syntax is:
+  for the object type would like to customise. The syntax is:
 
   log4d.renderer.nameOfRenderedClass=nameOfRenderingClass
 
@@ -2590,43 +3139,40 @@ end;
 
   Class Factories
 
-  In case you are using your own sub-types of the TLogCategory class and
-  wish to use configuration files, then you must set the CategoryFactory
+  In case you are using your own sub-types of the TLogLogger class and
+  wish to use configuration files, then you must set the LoggerFactory
   for the sub-type that you are using. The syntax is:
 
-  log4d.categoryFactory=nameOfCategoryFactoryClass
+  log4d.loggerFactory=nameOfLoggerFactoryClass
 
   Example
 
   An example configuration is given below.
 
   # Set internal debugging
-  log4d.debug=TRUE
+  log4d.configDebug=true
 
-  # Global disable level - don't show debug or info events
-  log4d.disable=INFO
+  # Global logging level - don't show debug events
+  log4d.threshold=info
 
-  # Override global disable level
-  # log4d.disableOverride=TRUE
+  # Set logger factory - this is the default anyway
+  log4d.loggerFactory=TLogDefaultLoggerFactory
 
-  # Set category factory - this is the default anyway
-  log4d.categoryFactory=TLogDefaultCategoryFactory
+  # Set root level to log warnings and above - sending to appender ODS
+  log4d.rootLogger=warn,ODS
 
-  # Set root priority to log warnings and above - sending to appender ODS
-  log4d.rootCategory=WARN,ODS
-
-  # Establish category hierarchy
-  # 'myapp' inherits its priority from root
-  log4d.category.myapp=INHERITED,Mem1
+  # Establish logger hierarchy
+  # 'myapp' inherits its level from root
+  log4d.logger.myapp=inherited,Mem1
   # 'myapp.more' displays all messages (from debug up)
-  log4d.category.myapp.more=DEBUG,Mem2
+  log4d.logger.myapp.more=debug,Mem2
   # 'myapp.other' doesn't display debug messages
-  log4d.category.myapp.other=INFO,Mem3
+  log4d.logger.myapp.other=info,Mem3
   # 'alt' only displays error and fatal messages
-  log4d.category.alt=ERROR,Mem4,Fil1
+  log4d.logger.alt=error,Mem4,Fil1
 
-  # 'myapp.other' category doesn't log to its parents - others do
-  log4d.additive.myapp.other=FALSE
+  # 'myapp.other' logger doesn't log to its parents - others do
+  log4d.additive.myapp.other=false
 
   # Create root appender - logging to debugging output
   log4d.appender.ODS=TLogODSAppender
@@ -2640,22 +3186,22 @@ end;
   # Use a pattern layout
   log4d.appender.Mem1.layout=TLogPatternLayout
   # With the specified pattern: runtime (in field of 7 characters),
-  # thread id (left justified in field of 8 characters), priority,
-  # category, NDC, message, and a new line
+  # thread id (left justified in field of 8 characters), level,
+  # logger, NDC, message, and a new line
   log4d.appender.Mem1.layout.pattern=%7r [%-8t] %p %c %x - %m%n
   # Add a string filter
   log4d.appender.Mem1.filter1=TLogStringFilter
   # That matches on 'x'
   log4d.appender.Mem1.filter1.match=x
   # And accepts all messages containing it
-  log4d.appender.Mem1.filter1.acceptOnMatch=TRUE
+  log4d.appender.Mem1.filter1.acceptOnMatch=false
   # Add a second string filter
   log4d.appender.Mem1.filter2=TLogStringFilter
   # That matches on 'y'
   log4d.appender.Mem1.filter2.match=y
   # And discards all messages containing it
   # Note: messages with 'x' and 'y' will be logged as filter 1 is checked first
-  log4d.appender.Mem1.filter2.acceptOnMatch=FALSE
+  log4d.appender.Mem1.filter2.acceptOnMatch=false
 
   log4d.appender.Mem2=TMemoAppender
   log4d.appender.Mem2.memo=memMyappMore
@@ -2682,41 +3228,42 @@ end;
   log4d.renderer.TEdit=TComponentRenderer
 
   Use the # character at the beginning of a line for comments. }
-procedure TLogPropertyConfigurator.DoConfigure(Props: TStringList;
-  Hierarchy: TLogHierarchy);
+procedure TLogPropertyConfigurator.DoConfigure(const Props: TStringList;
+  const Hierarchy: TLogHierarchy);
 begin
-  SetGlobalProps(Hierarchy,
-    Props.Values[CategoryFactoryKey], Props.Values[DebugKey],
-    Props.Values[DisableOverrideKey], Props.Values[DisableKey]);
+  SetGlobalProps(Hierarchy, Props.Values[LoggerFactoryKey],
+    Props.Values[DebugKey], Props.Values[ThresholdKey]);
 
-  ConfigureRootCategory(Props, Hierarchy);
-  ParseCategoriesAndRenderers(Props, Hierarchy);
+  ConfigureRootLogger(Props, Hierarchy);
+  ParseLoggersAndRenderers(Props, Hierarchy);
 
   LogLog.Debug(Format(FinishedConfigMsg, [ClassName]));
 end;
 
 const
-  Bool: array [Boolean] of string = ('False', 'True');
+  Bool: array [Boolean] of string = ('false', 'true');
 
-{ Parse the additivity option for a non-root category. }
-procedure TLogPropertyConfigurator.ParseAdditivityForCategory(
-  Props: TStringList; Cat: TLogCategory);
+{ Parse the additivity option for a non-root logger. }
+procedure TLogPropertyConfigurator.ParseAdditivityForLogger(
+  const Props: TStringList; const Logger: TLogLogger);
 var
   Value: string;
 begin
-  Value := Props.Values[AdditiveKey + Cat.Name];
-  LogLog.Debug(Format(HandlingAdditivityMsg, [AdditiveKey + Cat.Name, Value]));
+  Value := Props.Values[AdditiveKey + Logger.Name];
+  LogLog.Debug(Format(HandlingAdditivityMsg,
+    [AdditiveKey + Logger.Name, Value]));
   { Touch additivity only if necessary }
   if Value <> '' then
   begin
-    Cat.Additive := StrToBool(Value, True);
-    LogLog.Debug(Format(SettingAdditivityMsg, [Cat.Name, Bool[Cat.Additive]]));
+    Logger.Additive := StrToBool(Value, True);
+    LogLog.Debug(Format(SettingAdditivityMsg,
+      [Logger.Name, Bool[Logger.Additive]]));
   end;
 end;
 
 { Parse entries for an appender and its constituents. }
-function TLogPropertyConfigurator.ParseAppender(Props: TStringList;
-  AppenderName: string): ILogAppender;
+function TLogPropertyConfigurator.ParseAppender(const Props: TStringList;
+  const AppenderName: string): ILogAppender;
 var
   Prefix, SubPrefix: string;
   ErrorHandler: ILogErrorHandler;
@@ -2725,7 +3272,7 @@ var
   Index: Integer;
 begin
   Result := AppenderGet(AppenderName);
-  if Assigned(Result) then
+  if Result <> nil then
   begin
     LogLog.Debug(Format(AppenderDefinedMsg, [AppenderName]));
     Exit;
@@ -2734,7 +3281,7 @@ begin
   { Appender was not previously initialised. }
   Prefix := AppenderKey + AppenderName;
   Result := FindAppender(Props.Values[Prefix]);
-  if not Assigned(Result) then
+  if Result = nil then
   begin
     LogLog.Error(Format(NoAppenderCreatedMsg, [AppenderName]));
     Exit;
@@ -2745,10 +3292,10 @@ begin
   { Process any error handler entry. }
   SubPrefix    := Prefix + ErrorHandlerKey;
   ErrorHandler := FindErrorHandler(Props.Values[SubPrefix]);
-  if Assigned(ErrorHandler) then
+  if ErrorHandler <> nil then
   begin
     Result.ErrorHandler := ErrorHandler;
-    LogLog.Debug(Format(ParsingErrorHandlderMsg, [AppenderName]));
+    LogLog.Debug(Format(ParsingErrorHandlerMsg, [AppenderName]));
     SetSubProps(SubPrefix, Props, ErrorHandler);
     LogLog.Debug(Format(EndErrorHandlerMsg, [AppenderName]));
   end;
@@ -2756,14 +3303,14 @@ begin
   { Process any layout entry. }
   SubPrefix := Prefix + LayoutKey;
   Layout    := FindLayout(Props.Values[SubPrefix]);
-  if Assigned(Layout) then
+  if Layout <> nil then
   begin
     Result.Layout := Layout;
     LogLog.Debug(Format(ParsingLayoutMsg, [AppenderName]));
     SetSubProps(SubPrefix, Props, Layout);
     LogLog.Debug(Format(EndLayoutMsg, [AppenderName]));
   end;
-  if Result.RequiresLayout and not Assigned(Result.Layout) then
+  if Result.RequiresLayout and (Result.Layout = nil) then
     LogLog.Error(Format(LayoutRequiredMsg, [AppenderName]));
 
   { Process any filter entries. }
@@ -2773,7 +3320,7 @@ begin
         (Pos('.', Copy(Props.Names[Index], Length(SubPrefix), 255)) = 0) then
     begin
       Filter := FindFilter(Props.Values[Props.Names[Index]]);
-      if not Assigned(Filter) then
+      if Filter = nil then
         Continue;
 
       Result.AddFilter(Filter);
@@ -2789,44 +3336,44 @@ begin
   AppenderPut(Result);
 end;
 
-{ Parse non-root elements, such as non-root categories and renderers. }
-procedure TLogPropertyConfigurator.ParseCategoriesAndRenderers(
-  Props: TStringList; Hierarchy: TLogHierarchy);
+{ Parse non-root elements, such as non-root loggers and renderers. }
+procedure TLogPropertyConfigurator.ParseLoggersAndRenderers(
+  const Props: TStringList; const Hierarchy: TLogHierarchy);
 var
   Index: Integer;
   Key, Name: string;
-  Category: TLogCategory;
+  Logger: TLogLogger;
 begin
   for Index := 0 to Props.Count - 1 do
   begin
     Key := Props.Names[Index];
-    if Copy(Key, 1, Length(CategoryKey)) = CategoryKey then
+    if Copy(Key, 1, Length(LoggerKey)) = LoggerKey then
     begin
-      Name     := Copy(Key, Length(CategoryKey) + 1, 255);
-      Category := Hierarchy.GetInstance(Name, FCategoryFactory);
-      Category.LockCategory;
+      Name   := Copy(Key, Length(LoggerKey) + 1, 255);
+      Logger := Hierarchy.GetLogger(Name, FLoggerFactory);
+      Logger.LockLogger;
       try
-        ParseCategory(Props, Category, Props.Values[Key]);
-        ParseAdditivityForCategory(Props, Category);
+        ParseLogger(Props, Logger, Props.Values[Key]);
+        ParseAdditivityForLogger(Props, Logger);
       finally
-        Category.UnlockCategory;
+        Logger.UnlockLogger;
       end;
     end
     else if Copy(Key, 1, Length(RendererKey)) = RendererKey then
       AddRenderer(Hierarchy,
-        Copy(Key, Length(CategoryKey) + 1, 255), Props.Values[Key]);
+        Copy(Key, Length(RendererKey) + 1, 255), Props.Values[Key]);
   end;
 end;
 
-{ This method must work for the root category as well. }
-procedure TLogPropertyConfigurator.ParseCategory(Props: TStringList;
-  Cat: TLogCategory; Value: string);
+{ This method must work for the root logger as well. }
+procedure TLogPropertyConfigurator.ParseLogger(const Props: TStringList;
+  const Logger: TLogLogger; const Value: string);
 var
   Appender: ILogAppender;
   Index: Integer;
   Items: TStringList;
 begin
-  LogLog.Debug(Format(ParsingCategoryMsg, [Cat.Name, Value]));
+  LogLog.Debug(Format(ParsingLoggerMsg, [Logger.Name, Value]));
   Items := TStringList.Create;
   try
     { We must skip over ',' but not white space }
@@ -2834,24 +3381,24 @@ begin
     if Items.Count = 0 then
       Exit;
     { If value is not in the form ", appender.." or "", then we should set
-      the priority of the category. }
+      the level of the logger. }
     if Items[0] <> '' then
     begin
-      LogLog.Debug(Format(PriorityTokenMsg, [Items[0]]));
+      LogLog.Debug(Format(LevelTokenMsg, [Items[0]]));
 
-      { If the priority value is inherited, set category priority value to nil.
+      { If the level value is inherited, set logger level value to nil.
         We also check that the user has not specified inherited for the
-        root category. }
-      if (UpperCase(Items[0]) = InheritedPriority) and
-          (Cat.Name <> InternalRootName) then
-        Cat.Priority := nil
+        root logger. }
+      if (LowerCase(Items[0]) = InheritedLevel) and
+          (Logger.Name <> InternalRootName) then
+        Logger.Level := nil
       else
-        Cat.Priority := GetPriority(UpperCase(Items[0]));
-      LogLog.Debug(Format(SettingPriorityMsg, [Cat.Name, Cat.Priority.Name]));
+        Logger.Level := TLogLevel.GetLevel(LowerCase(Items[0]));
+      LogLog.Debug(Format(SettingLevelMsg, [Logger.Name, Logger.Level.Name]));
     end;
 
     { Remove all existing appenders. They will be reconstructed below. }
-    Cat.RemoveAllAppenders;
+    Logger.RemoveAllAppenders;
 
     for Index := 1 to Items.Count - 1 do
     begin
@@ -2859,8 +3406,8 @@ begin
         Continue;
       LogLog.Debug(Format(ParsingAppenderMsg, [Items[Index]]));
       Appender := ParseAppender(Props, Items[Index]);
-      if Assigned(Appender) then
-        Cat.AddAppender(Appender);
+      if Appender <> nil then
+        Logger.AddAppender(Appender);
     end;
   finally
     Items.Free;
@@ -2875,7 +3422,7 @@ procedure RegisterClass(ClassType: TClass; InterfaceType: TGUID;
 var
   Index: Integer;
 begin
-  if not Assigned(ClassType.GetInterfaceEntry(InterfaceType)) then
+  if ClassType.GetInterfaceEntry(InterfaceType) = nil then
     raise ELogException.Create(Format(InterfaceNotImplMsg,
       [ClassType.ClassName, InterfaceName]));
 
@@ -2907,13 +3454,13 @@ begin
   end
   else
   begin
-{$IFDEF VER120}  { Delphi 4 }
+{$IFDEF DELPHI4}
     TClass(Classes[Index]).Create.GetInterface(InterfaceType, Result);
 {$ELSE}
     Classes[Index].Create.GetInterface(InterfaceType, Result);
 {$ENDIF}
     Result.QueryInterface(ILogDynamicCreate, Creator);
-    if Assigned(Creator) then
+    if Creator <> nil then
       Creator.Init;
   end;
 end;
@@ -2922,45 +3469,45 @@ var
   AppenderNames: TStringList;
   AppenderClasses: TClassList;
 
-procedure RegisterAppender(Appender: TClass);
+procedure RegisterAppender(const Appender: TClass);
 begin
   RegisterClass(Appender, ILogAppender, 'ILogAppender',
     AppenderNames, AppenderClasses);
 end;
 
-function FindAppender(ClassName: string): ILogAppender;
+function FindAppender(const ClassName: string): ILogAppender;
 begin
   Result := FindClass(ClassName, ILogAppender, AppenderNames, AppenderClasses)
     as ILogAppender;
 end;
 
 var
-  CategoryFactoryNames: TStringList;
-  CategoryFactoryClasses: TClassList;
+  LoggerFactoryNames: TStringList;
+  LoggerFactoryClasses: TClassList;
 
-procedure RegisterCategoryFactory(CategoryFactory: TClass);
+procedure RegisterLoggerFactory(const LoggerFactory: TClass);
 begin
-  RegisterClass(CategoryFactory, ILogCategoryFactory, 'ILogCategoryFactory',
-    CategoryFactoryNames, CategoryFactoryClasses);
+  RegisterClass(LoggerFactory, ILogLoggerFactory, 'ILogLoggerFactory',
+    LoggerFactoryNames, LoggerFactoryClasses);
 end;
 
-function FindCategoryFactory(ClassName: string): ILogCategoryFactory;
+function FindLoggerFactory(const ClassName: string): ILogLoggerFactory;
 begin
-  Result := FindClass(ClassName, ILogCategoryFactory,
-    CategoryFactoryNames, CategoryFactoryClasses) as ILogCategoryFactory;
+  Result := FindClass(ClassName, ILogLoggerFactory,
+    LoggerFactoryNames, LoggerFactoryClasses) as ILogLoggerFactory;
 end;
 
 var
   ErrorHandlerNames: TStringList;
   ErrorHandlerClasses: TClassList;
 
-procedure RegisterErrorHandler(ErrorHandler: TClass);
+procedure RegisterErrorHandler(const ErrorHandler: TClass);
 begin
   RegisterClass(ErrorHandler, ILogErrorHandler, 'ILogErrorHandler',
     ErrorHandlerNames, ErrorHandlerClasses);
 end;
 
-function FindErrorHandler(ClassName: string): ILogErrorHandler;
+function FindErrorHandler(const ClassName: string): ILogErrorHandler;
 begin
   Result := FindClass(ClassName, ILogErrorHandler, ErrorHandlerNames,
     ErrorHandlerClasses) as ILogErrorHandler;
@@ -2970,12 +3517,12 @@ var
   FilterNames: TStringList;
   FilterClasses: TClassList;
 
-procedure RegisterFilter(Filter: TClass);
+procedure RegisterFilter(const Filter: TClass);
 begin
   RegisterClass(Filter, ILogFilter, 'ILogFilter', FilterNames, FilterClasses);
 end;
 
-function FindFilter(ClassName: string): ILogFilter;
+function FindFilter(const ClassName: string): ILogFilter;
 begin
   Result := FindClass(ClassName, ILogFilter, FilterNames, FilterClasses)
     as ILogFilter;
@@ -2985,12 +3532,12 @@ var
   LayoutNames: TStringList;
   LayoutClasses: TClassList;
 
-procedure RegisterLayout(Layout: TClass);
+procedure RegisterLayout(const Layout: TClass);
 begin
   RegisterClass(Layout, ILogLayout, 'ILogLayout', LayoutNames, LayoutClasses);
 end;
 
-function FindLayout(ClassName: string): ILogLayout;
+function FindLayout(const ClassName: string): ILogLayout;
 begin
   Result := FindClass(ClassName, ILogLayout, LayoutNames, LayoutClasses)
     as ILogLayout;
@@ -3001,7 +3548,7 @@ var
   RenderedClasses: TClassList;
 
 { Register a class to be rendered. }
-procedure RegisterRendered(Rendered: TClass);
+procedure RegisterRendered(const Rendered: TClass);
 var
   Index: Integer;
 begin
@@ -3016,7 +3563,7 @@ begin
 end;
 
 { Return a reference to the named class. }
-function FindRendered(ClassName: string): TClass;
+function FindRendered(const ClassName: string): TClass;
 var
   Index: Integer;
 begin
@@ -3027,7 +3574,7 @@ begin
     Result := nil;
   end
   else
-{$IFDEF VER120}  { Delphi 4 }
+{$IFDEF DELPHI4}
     Result := TClass(RenderedClasses[Index]);
 {$ELSE}
     Result := RenderedClasses[Index];
@@ -3038,13 +3585,13 @@ var
   RendererNames: TStringList;
   RendererClasses: TClassList;
 
-procedure RegisterRenderer(Renderer: TClass);
+procedure RegisterRenderer(const Renderer: TClass);
 begin
   RegisterClass(Renderer, ILogRenderer, 'ILogRenderer',
     RendererNames, RendererClasses);
 end;
 
-function FindRenderer(ClassName: string): ILogRenderer;
+function FindRenderer(const ClassName: string): ILogRenderer;
 begin
   Result := FindClass(ClassName, ILogRenderer,
     RendererNames, RendererClasses) as ILogRenderer;
@@ -3057,71 +3604,77 @@ initialization
   StartTime := Now;
   { Synchronisation. }
   InitializeCriticalSection(CriticalNDC);
-  { Standard priorities. }
-  Priorities             := TObjectList.Create;
-{$IFNDEF VER120}  { Not Delphi 4 }
-  Priorities.OwnsObjects := True;
+  { Standard levels. }
+  Levels             := TObjectList.Create;
+{$IFDEF DELPHI5_UP}
+  Levels.OwnsObjects := True;
 {$ENDIF}
-  Debug := TLogPriority.Create('DEBUG', 10000);
-  Info  := TLogPriority.Create('INFO',  20000);
-  Warn  := TLogPriority.Create('WARN',  30000);
-  Error := TLogPriority.Create('ERROR', 40000);
-  Fatal := TLogPriority.Create('FATAL', 50000);
+  All   := TLogLevel.Create('all',   AllValue);
+  Debug := TLogLevel.Create('debug', DebugValue);
+  Info  := TLogLevel.Create('info',  InfoValue);
+  Warn  := TLogLevel.Create('warn',  WarnValue);
+  Error := TLogLevel.Create('error', ErrorValue);
+  Fatal := TLogLevel.Create('fatal', FatalValue);
+  Off   := TLogLevel.Create('off',   OffValue);
   { NDC stack. }
   NDC        := TStringList.Create;
   NDC.Sorted := True;
   { Registration setup. }
-  AppenderNames          := TStringList.Create;
-  AppenderClasses        := TClassList.Create;
-  CategoryFactoryNames   := TStringList.Create;
-  CategoryFactoryClasses := TClassList.Create;
-  ErrorHandlerNames      := TStringList.Create;
-  ErrorHandlerClasses    := TClassList.Create;
-  FilterNames            := TStringList.Create;
-  FilterClasses          := TClassList.Create;
-  LayoutNames            := TStringList.Create;
-  LayoutClasses          := TClassList.Create;
-  RenderedNames          := TStringList.Create;
-  RenderedClasses        := TClassList.Create;
-  RendererNames          := TStringList.Create;
-  RendererClasses        := TClassList.Create;
+  AppenderNames        := TStringList.Create;
+  AppenderClasses      := TClassList.Create;
+  ErrorHandlerNames    := TStringList.Create;
+  ErrorHandlerClasses  := TClassList.Create;
+  FilterNames          := TStringList.Create;
+  FilterClasses        := TClassList.Create;
+  LayoutNames          := TStringList.Create;
+  LayoutClasses        := TClassList.Create;
+  LoggerFactoryNames   := TStringList.Create;
+  LoggerFactoryClasses := TClassList.Create;
+  RenderedNames        := TStringList.Create;
+  RenderedClasses      := TClassList.Create;
+  RendererNames        := TStringList.Create;
+  RendererClasses      := TClassList.Create;
   { Registration of standard implementations. }
-  RegisterCategoryFactory(TLogDefaultCategoryFactory);
+  RegisterLoggerFactory(TLogDefaultLoggerFactory);
+  RegisterErrorHandler(TLogFallbackErrorHandler);
   RegisterErrorHandler(TLogOnlyOnceErrorHandler);
-  RegisterLayout(TLogSimpleLayout);
   RegisterLayout(TLogHTMLLayout);
   RegisterLayout(TLogPatternLayout);
+  RegisterLayout(TLogSimpleLayout);
+  RegisterFilter(TLogDenyAllFilter);
+  RegisterFilter(TLogLevelMatchFilter);
+  RegisterFilter(TLogLevelRangeFilter);
   RegisterFilter(TLogStringFilter);
+  RegisterAppender(TLogFileAppender);
   RegisterAppender(TLogNullAppender);
   RegisterAppender(TLogODSAppender);
   RegisterAppender(TLogStreamAppender);
-  RegisterAppender(TLogFileAppender);
-  { Standard category factory and hierarchy. }
-  DefaultCategoryFactory := TLogDefaultCategoryFactory.Create;
-  DefaultCategoryFactory._AddRef;
-  DefaultHierarchy       := TLogHierarchy.Create(TLogRoot.Create(Error));
+  { Standard logger factory and hierarchy. }
+  DefaultLoggerFactory := TLogDefaultLOggerFactory.Create;
+  DefaultLoggerFactory._AddRef;
+  DefaultHierarchy     := TLogHierarchy.Create(TLogRoot.Create(Error));
   { Internal logging }
   LogLog           := TLogLog.Create;
   LogLog.Hierarchy := DefaultHierarchy;
 finalization
-{$IFDEF VER120}  { Delphi 4 }
-  for Index := 0 to Priorities.Count - 1 do
-    TObject(Priorities[Index]).Free;
+{$IFDEF DELPHI4}
+  for Index := 0 to Levels.Count - 1 do
+    TObject(Levels[Index]).Free;
 {$ENDIF}
-  Priorities.Free;
-  DefaultCategoryFactory._Release;
+  Levels.Free;
+  DefaultLoggerFactory._Release;
   DefaultHierarchy.Free;
   { Registration cleanup. }
   AppenderNames.Free;
   AppenderClasses.Free;
-  CategoryFactoryNames.Free;
-  CategoryFactoryClasses.Free;
   ErrorHandlerNames.Free;
   ErrorHandlerClasses.Free;
   FilterNames.Free;
   FilterClasses.Free;
   LayoutNames.Free;
   LayoutClasses.Free;
+  LoggerFactoryNames.Free;
+  LoggerFactoryClasses.Free;
   RenderedNames.Free;
   RenderedClasses.Free;
   RendererNames.Free;

@@ -3,33 +3,25 @@
 <!-- Author: Keith Wood. -->
 
 <!-- A configuration element consists of optional renderer elements,
-     appender elements, categories, and an optional root element. -->
+     appender elements, loggers, and an optional root element. -->
 
-<!ELEMENT log4d:configuration (renderer*, appender*, category*, root?)>
+<!ELEMENT log4d:configuration (renderer*, appender*, logger*, root?)>
 
 
-<!-- The categoryFactory attribute names the factory to be used to
-     create new instances of categories.
+<!-- The loggerFactory attribute names the factory to be used to
+     create new instances of loggers.
 
-     Setting the debug attribute enable the printing
-     of internal log4d logging statements.
-     By default, the debug attribute is "null", meaning
-     that we not touch internal log4d logging settings.
+     Setting the configDebug attribute enable the printing
+     of internal Log4D logging statements.
 
-     The disable attribute takes a priority value such that all logging
-     statements with a priority equal or below this value are disabled.
-
-     The disableOverride attribute allows the user to override any
-     BasicConfigurator.disable invocations made from within the application.
-
-     By default, disableOverride is "null", meaning that we
-     do not touch the disable flag. -->
+     The threshold attribute takes a level value such that all logging
+     statements with a level below this value are disabled.
+     It defaults to permit all logging. -->
 
 <!ATTLIST log4d:configuration
-  categoryFactory CDATA #IMPLIED
-  debug           (true | false | null) "null"
-  disable         CDATA "null"
-  disableOverride (true | false | null) "null"
+  loggerFactory CDATA #IMPLIED
+  configDebug   (true | false) "false"
+  threshold     CDATA "ALL"
 >
 
 <!-- Renderer elements allow the user to customize the conversion of
@@ -82,28 +74,28 @@
   value CDATA #REQUIRED
 >
 
-<!-- Priorities are identified by name. -->
+<!-- Levels are identified by name. -->
 
-<!ELEMENT priority EMPTY>
-<!ATTLIST priority
+<!ELEMENT level EMPTY>
+<!ATTLIST level
   name CDATA #REQUIRED
 >
 
-<!-- If no priority element is specified, then the configurator
-     MUST not touch the priority of the named category. -->
+<!-- If no level element is specified, then the configurator
+     MUST not touch the level of the named logger. -->
 
-<!ELEMENT category (param*, priority?, appender-ref*)>
-<!ATTLIST category
+<!ELEMENT logger (param*, level?, appender-ref*)>
+<!ATTLIST logger
   class    CDATA #IMPLIED
   name     CDATA #REQUIRED
   additive (true | false) "true"
 >
 
-<!-- If no priority element is specified, then the configurator
-     MUST not touch the priority of root.
-     The root category always exists and cannot be subclassed. -->
+<!-- If no level element is specified, then the configurator
+     MUST not touch the level of root.
+     The root logger always exists and cannot be subclassed. -->
 
-<!ELEMENT root (param*, priority?, appender-ref*)>
+<!ELEMENT root (param*, level?, appender-ref*)>
 
 <!-- Refer back to the appender defined earlier. -->
 
@@ -117,16 +109,25 @@
      in formatting logging events as XML. -->
 
 <!ELEMENT log4d:eventSet (log4d:event*)>
+<!ATTLIST log4d:eventSet
+  version CDATA #FIXED "1.2"
+>
 
 <!ELEMENT log4d:event (log4d:message, log4d:NDC?, log4d:exception?) >
 
-<!-- The timestamp format is application dependent. -->
+<!-- The name of the logger.
+     The name and numeric value of the level.
+     The id of the running thread.
+     The timestamp of the event (format is application dependent).
+     The time elapsed since the start of the application (millisecs). -->
 
 <!ATTLIST log4d:event
-  category  CDATA #REQUIRED
-  priority  CDATA #REQUIRED
-  thread    CDATA #REQUIRED
-  timestamp CDATA #REQUIRED
+  logger     CDATA #REQUIRED
+  levelName  CDATA #REQUIRED
+  levelValue CDATA #REQUIRED
+  thread     CDATA #REQUIRED
+  timestamp  CDATA #REQUIRED
+  elapsed    CDATA #REQUIRED
 >
 
 <!ELEMENT log4d:message (#PCDATA)>
@@ -134,4 +135,7 @@
 <!ELEMENT log4d:NDC (#PCDATA)>
 
 <!ELEMENT log4d:exception (#PCDATA)>
+<!ATTLIST log4d:exception
+  class CDATA #REQUIRED
+>
 

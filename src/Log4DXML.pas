@@ -8,11 +8,14 @@ unit Log4DXML;
   XML document layout.
   Configurator from an XML document (uses MSXML v3 for parsing).
 
-  Written by Keith Wood (kbwood@compuserve.com).
+  Written by Keith Wood (kbwood@iprimus.com.au).
   Version 1.0 - 29 April 2001.
+  Version 1.2 - 9 September 2003.
 }
 
 interface
+
+{$I Defines.inc}
 
 uses
   Classes, SysUtils, Windows, Log4D, ComObj, ActiveX, MSXML2_tlb;
@@ -25,7 +28,11 @@ type
     function GetFooter: string; override;
     function GetHeader: string; override;
   public
-    function Format(Event: TLogEvent): string; override;
+    function Format(const Event: TLogEvent): string; overload; override;
+    function Format(const LoggerName, LevelName: string;
+      const LevelValue, ThreadId: Integer; const Timestamp: TDateTime;
+      const ElapsedTime: Integer;
+      const Message, NDC, ErrorMsg, ErrorClass: string): string; overload;
     function IgnoresException: Boolean; override;
   end;
 
@@ -33,31 +40,31 @@ type
     file. See log4d.dtd for the expected format.
 
     It is sometimes useful to see how Log4D is reading configuration files.
-    You can enable Log4D internal logging by defining the debug attribute
-    on the log4d:configuration element. }
+    You can enable Log4D internal logging by defining the configDebug
+    attribute on the log4d:configuration element. }
   TLogXMLConfigurator = class(TLogBasicConfigurator,
     IVBSAXContentHandler, IVBSAXErrorHandler)
   protected
     FAppender: ILogAppender;
-    FCategory: TLogCategory;
-    FCategoryFactory: ILogCategoryFactory;
     FErrorHandler: ILogErrorHandler;
     FFilter: ILogFilter;
     FHandlers: TInterfaceList;
     FHierarchy: TLogHierarchy;
     FLayout: ILogLayout;
     FLocator: IVBSAXLocator;
+    FLogger: TLogLogger;
+    FLoggerFactory: ILogLoggerFactory;
   public
     constructor Create;
     destructor Destroy; override;
-    class procedure Configure(ConfigURL: string); overload;
-    class procedure Configure(Document: TStream); overload;
-    procedure DoConfigure(ConfigURL: string; Hierarchy: TLogHierarchy);
-      overload;
-    procedure DoConfigure(Document: TStream; Hierarchy: TLogHierarchy);
-      overload;
+    class procedure Configure(const ConfigURL: string); overload;
+    class procedure Configure(const Document: TStream); overload;
+    procedure DoConfigure(const ConfigURL: string;
+      const Hierarchy: TLogHierarchy); overload;
+    procedure DoConfigure(const Document: TStream;
+      const Hierarchy: TLogHierarchy); overload;
     { IVBSAXContentHandler }
-{$IFDEF VER140}  { Delphi 6 }
+{$IFDEF MSXML4}
     procedure _Set_documentLocator(const Param1: IVBSAXLocator); safecall;
 {$ELSE}
     procedure Set_documentLocator(const Param1: IVBSAXLocator); safecall;
@@ -104,36 +111,39 @@ const
   AdditiveAttr        = 'additive';
   AppenderTag         = 'appender';
   AppenderRefTag      = 'appender-ref';
-  CategoryTag         = 'category';
-  CategoryFactoryAttr = 'categoryFactory';
   ClassAttr           = 'class';
   ConfigurationTag    = 'log4d:configuration';
-  DebugAttr           = 'debug';
-  DisableAttr         = 'disable';
-  DisableOverrideAttr = 'disableOverride';
+  DebugAttr           = 'configDebug';
   ErrorHandlerTag     = 'errorHandler';
   FilterTag           = 'filter';
   LayoutTag           = 'layout';
+  LevelTag            = 'level';
+  LoggerTag           = 'logger';
+  LoggerFactoryAttr   = 'loggerFactory';
   NameAttr            = 'name';
   ParamTag            = 'param';
-  PriorityTag         = 'priority';
   RefAttr             = 'ref';
   RendererTag         = 'renderer';
   RenderedClassAttr   = 'renderedClass';
   RenderingClassAttr  = 'renderingClass';
   RootTag             = 'root';
+  ThresholdAttr       = 'threshold';
   ValueAttr           = 'value';
   { Element and attribute names from the XML events document. }
   NamespacePrefix     = 'log4d:';
-  CategoryAttr        = 'category';
+  ElapsedAttr         = 'elapsed';
   EventSetTag         = NamespacePrefix + 'eventSet';
   EventTag            = NamespacePrefix + 'event';
   ExceptionTag        = NamespacePrefix + 'exception';
+  LevelNameAttr       = 'levelName';
+  LevelValueAttr      = 'levelValue';
+  LoggerAttr          = 'logger';
   MessageTag          = NamespacePrefix + 'message';
   NDCTag              = NamespacePrefix + 'NDC';
-  PriorityAttr        = 'priority';
   ThreadAttr          = 'thread';
   TimestampAttr       = 'timestamp';
+
+  TimestampFormat     = 'yyyymmddhhnnsszzz';
 
 implementation
 
@@ -141,30 +151,57 @@ const
   CRLF = #13#10;
 
 resourcestring
-  MessageFormat = '%s during configuration: %s at %d,%d in %s';
+  AppenderErrorHMsg = 'Appender "%s" uses error handler "%s"';
+  AppenderFilterMsg = 'Appender "%s" uses filter "%s"';
+  AppenderLayoutMsg = 'Appender "%s" uses layout "%s"';
+  ErrorMsg          = 'Error';
+  FatalMsg          = 'Fatal error';
+  FinishedConfigMsg = 'Finished configuring "%s"';
+  IgnoringConfigMsg = 'Ignoring configuration file';
+  LoggerLevelMsg    = 'Logger "%s" level set to "%s"';
+  NoAppenderMsg     = 'Appender "%s" was not found';
+  ParsedAppenderMsg = 'Parsed appender "%s"';
+  ParsedLoggerMsg   = 'Parsed logger "%s"';
+  ParsedRootMsg     = 'Parsed root logger';
+  SAXErrorMsg       = '%s during configuration: %s at %d,%d in %s';
+  WarningMsg        = 'Warning';
 
-var
-  s: string;
-
-{ TLogHTMLLayout --------------------------------------------------------------}
+{ TLogXMLLayout ---------------------------------------------------------------}
 
 { Write an XML element for each event. }
-function TLogXMLLayout.Format(Event: TLogEvent): string;
+function TLogXMLLayout.Format(const Event: TLogEvent): string;
 var
-  Value: string;
+  ClassName: string;
 begin
-  Result := '<' + EventTag + ' ' + CategoryAttr + '="' + Event.Category.Name +
-    '" ' + PriorityAttr + '="' + Event.Priority.Name +
-    '" ' + ThreadAttr + '="' + IntToStr(Event.ThreadId) +
-    '" ' + TimestampAttr + '="' + IntToStr(Event.ElapsedTime) +
-    '"><' + MessageTag + '>' + Event.Message + '</' + MessageTag + '>';
-  Value := Event.NDC;
-  if Value <> '' then
-    Result := Result + '<' + NDCTag + '>' + Value + '</' + NDCTag + '>';
-  Value := Event.ErrorMessage;
-  if Value <> '' then
-    Result := Result + '<' + ExceptionTag + '>' + Value +
-      '</' + ExceptionTag + '>';
+  if Event.Error = nil then
+    ClassName := ''
+  else
+    ClassName := Event.Error.ClassName;
+  Result := Format(Event.LoggerName, Event.Level.Name, Event.Level.Level,
+    Event.ThreadId, Event.TimeStamp, Event.ElapsedTime, Event.Message,
+    Event.NDC, Event.ErrorMessage, ClassName);
+end;
+
+{ Write an XML element for each event. }
+function TLogXMLLayout.Format(const LoggerName, LevelName: string;
+  const LevelValue, ThreadId: Integer;
+  const Timestamp: TDateTime; const ElapsedTime: Integer;
+  const Message, NDC, ErrorMsg, ErrorClass: string): string;
+begin
+  Result := '<' + EventTag + ' ' + LoggerAttr + '="' + LoggerName +
+    '" ' + LevelNameAttr + '="' + LevelName +
+    '" ' + LevelValueAttr + '="' + IntToStr(LevelValue) +
+    '" ' + ThreadAttr + '="' + IntToStr(ThreadId) + '" ' +
+    TimestampAttr + '="' + FormatDateTime(TimestampFormat, Timestamp) +
+    '" ' + ElapsedAttr + '="' + IntToStr(ElapsedTime) +
+    '"><' + MessageTag + '><![CDATA[' + Message + ']]></' +
+    MessageTag + '>';
+  if NDC <> '' then
+    Result := Result + '<' + NDCTag + '><![CDATA[' + NDC + ']]></' +
+      NDCTag + '>';
+  if ErrorMsg <> '' then
+    Result := Result + '<' + ExceptionTag + ' ' + ClassAttr + '="' +
+      ErrorClass + '"><![CDATA[' + ErrorMsg + ']]></' + ExceptionTag + '>';
   Result := Result + '</' + EventTag + '>' + CRLF;
 end;
 
@@ -180,16 +217,14 @@ begin
   Result := '</' + EventSetTag + '>' + CRLF;
 end;
 
-{ Returns appropriate XML opening tags.
-  The generated XML is not a complete document, but is intended
-  as a well-formed fragment to be included in another XML document. }
+{ Returns appropriate XML opening tags. }
 function TLogXMLLayout.GetHeader: string;
 begin
   Result := '<?xml version="1.0"?>' + CRLF +
-    '<!-- DOCTYPE ' + EventSetTag + ' SYSTEM "log4d.dtd" -->' + CRLF +
-    '<' + EventSetTag + ' xmlns:' +
+    '<!DOCTYPE ' + EventSetTag + ' SYSTEM "log4d.dtd">' + CRLF +
+    '<' + EventSetTag + ' version="1.2" xmlns:' +
     Copy(NamespacePrefix, 1, Length(NamespacePrefix) - 1) +
-    '="urn:logging/Log4D">' + CRLF;
+    '="http://log4d.sourceforge.net/log4d">' + CRLF;
 end;
 
 { The XML layout handles the exception contained in logging events.
@@ -204,7 +239,7 @@ end;
 const
   InternalRootName = 'root';
 
-class procedure TLogXMLConfigurator.Configure(ConfigURL: string);
+class procedure TLogXMLConfigurator.Configure(const ConfigURL: string);
 var
   Config: TLogXMLConfigurator;
 begin
@@ -216,7 +251,7 @@ begin
   end;
 end;
 
-class procedure TLogXMLConfigurator.Configure(Document: TStream);
+class procedure TLogXMLConfigurator.Configure(const Document: TStream);
 var
   Config: TLogXMLConfigurator;
 begin
@@ -231,8 +266,8 @@ end;
 constructor TLogXMLConfigurator.Create;
 begin
   inherited Create;
-  FCategoryFactory := TLogDefaultCategoryFactory.Create;
-  FHandlers        := TInterfaceList.Create;
+  FLoggerFactory := TLogDefaultLoggerFactory.Create;
+  FHandlers      := TInterfaceList.Create;
 end;
 
 destructor TLogXMLConfigurator.Destroy;
@@ -241,26 +276,21 @@ begin
   inherited Destroy;
 end;
 
-procedure TLogXMLConfigurator.DoConfigure(ConfigURL: string;
-  Hierarchy: TLogHierarchy);
+procedure TLogXMLConfigurator.DoConfigure(const ConfigURL: string;
+  const Hierarchy: TLogHierarchy);
 var
   XMLReader: IVBSAXXMLReader;
 begin
   FHierarchy := Hierarchy;
   XMLReader  := CoSAXXMLReader.Create;
-{$IFDEF VER140}  { Delphi 6 }
-  XMLReader._Set_contentHandler(Self);
-  XMLReader._Set_ErrorHandler(Self);
-{$ELSE}
   XMLReader.ContentHandler := Self;
   XMLReader.ErrorHandler   := Self;
-{$ENDIF}
   XMLReader.ParseURL(ConfigURL);
-  LogLog.Debug('Finished configuring - ' + ClassName);
+  LogLog.Debug(Format(FinishedConfigMsg, [ClassName]));
 end;
 
-procedure TLogXMLConfigurator.DoConfigure(Document: TStream;
-  Hierarchy: TLogHierarchy);
+procedure TLogXMLConfigurator.DoConfigure(const Document: TStream;
+  const Hierarchy: TLogHierarchy);
 var
   Stream: IStream;
   XMLReader: IVBSAXXMLReader;
@@ -268,15 +298,10 @@ begin
   Stream     := TStreamAdapter.Create(Document);
   FHierarchy := Hierarchy;
   XMLReader  := CoSAXXMLReader.Create;
-{$IFDEF VER140}  { Delphi 6 }
-  XMLReader._Set_ContentHandler(Self);
-  XMLReader._Set_ErrorHandler(Self);
-{$ELSE}
   XMLReader.ContentHandler := Self;
   XMLReader.ErrorHandler   := Self;
-{$ENDIF}
   XMLReader.Parse(Stream);
-  LogLog.Debug('Finished configuring - ' + ClassName);
+  LogLog.Debug(Format(FinishedConfigMsg, [ClassName]));
 end;
 
 { IVBSAXContentHandler --------------------------------------------------------}
@@ -290,12 +315,12 @@ end;
 procedure TLogXMLConfigurator.EndElement(var strNamespaceURI: WideString;
   var strLocalName: WideString; var strQName: WideString);
 begin
-  if (strQName = AppenderTag) or (strQName = CategoryTag) or
+  if (strQName = AppenderTag) or (strQName = LoggerTag) or
       (strQName = ErrorHandlerTag) or (strQName = FilterTag) or
       (strQName = LayoutTag) or (strQName = RootTag) then
     FHandlers.Delete(FHandlers.Count - 1);
-  if (strQName = CategoryTag) or (strQName = RootTag) then
-    FCategory.UnlockCategory;
+  if (strQName = LoggerTag) or (strQName = RootTag) then
+    FLogger.UnlockLogger;
 end;
 
 procedure TLogXMLConfigurator.EndPrefixMapping(var strPrefix: WideString);
@@ -320,7 +345,7 @@ begin
 end;
 
 { Save locator for later error reporting. }
-{$IFDEF VER140}  { Delphi 6 }
+{$IFDEF MSXML4}
 procedure TLogXMLConfigurator._Set_documentLocator(const Param1: IVBSAXLocator);
 {$ELSE}
 procedure TLogXMLConfigurator.Set_documentLocator(const Param1: IVBSAXLocator);
@@ -367,35 +392,34 @@ begin
     FAppender.Name := GetAttribute(NameAttr);
     AppenderPut(FAppender);
     FHandlers.Add(FAppender);
-    LogLog.Debug('Parsed appender ' + FAppender.Name);
+    LogLog.Debug(Format(ParsedAppenderMsg, [FAppender.Name]));
   end
   else if strQName = AppenderRefTag then
   begin
-    { Reference to an appender for a category. }
+    { Reference to an appender for a logger. }
     Name      := GetAttribute(RefAttr);
     FAppender := AppenderGet(Name);
     if not Assigned(FAppender) then
-      LogLog.Error('Appender "' + Name + '" was not found.')
+      LogLog.Error(Format(NoAppenderMsg, [Name]))
     else
-      FCategory.AddAppender(FAppender);
+      FLogger.AddAppender(FAppender);
   end
-  else if strQName = CategoryTag then
+  else if strQName = LoggerTag then
   begin
-    { New category. }
-    FCategory          :=
-      FHierarchy.GetInstance(GetAttribute(NameAttr), FCategoryFactory);
-    FCategory.LockCategory;
-    FCategory.Additive := StrToBool(GetAttribute(AdditiveAttr), True);
-    (FCategory as ILogOptionHandler)._AddRef;
-    FHandlers.Add(FCategory);
-    LogLog.Debug('Parsed category ' + FCategory.Name);
+    { New logger. }
+    FLogger          :=
+      FHierarchy.GetLogger(GetAttribute(NameAttr), FLoggerFactory);
+    FLogger.LockLogger;
+    FLogger.Additive := StrToBool(GetAttribute(AdditiveAttr), True);
+    (FLogger as ILogOptionHandler)._AddRef;
+    FHandlers.Add(FLogger);
+    LogLog.Debug(Format(ParsedLoggerMsg, [FLogger.Name]));
   end
   else if strQName = ConfigurationTag then
   begin
     { Global settings. }
-    SetGlobalProps(FHierarchy,
-      GetAttribute(CategoryFactoryAttr), GetAttribute(DebugAttr),
-      GetAttribute(DisableOverrideAttr), GetAttribute(DisableAttr));
+    SetGlobalProps(FHierarchy, GetAttribute(LoggerFactoryAttr),
+      GetAttribute(DebugAttr), GetAttribute(ThresholdAttr));
   end
   else if strQName = ErrorHandlerTag then
   begin
@@ -404,7 +428,7 @@ begin
     FErrorHandler          := FindErrorHandler(Name);
     FAppender.ErrorHandler := FErrorHandler;
     FHandlers.Add(FErrorHandler);
-    LogLog.Debug('Appender ' + FAppender.Name + ' uses error handler ' + Name);
+    LogLog.Debug(Format(AppenderErrorHMsg, [FAppender.Name, Name]));
   end
   else if strQName = FilterTag then
   begin
@@ -413,7 +437,7 @@ begin
     FFilter := FindFilter(Name);
     FAppender.AddFilter(FFilter);
     FHandlers.Add(FFilter);
-    LogLog.Debug('Appender ' + FAppender.Name + ' uses filter ' + Name);
+    LogLog.Debug(Format(AppenderFilterMsg, [FAppender.Name, Name]));
   end
   else if strQName = LayoutTag then
   begin
@@ -422,7 +446,7 @@ begin
     FLayout          := FindLayout(Name);
     FAppender.Layout := FLayout;
     FHandlers.Add(FLayout);
-    LogLog.Debug('Appender ' + FAppender.Name + ' uses layout ' + Name);
+    LogLog.Debug(Format(AppenderLayoutMsg, [FAppender.Name, Name]));
   end
   else if strQName = ParamTag then
   begin
@@ -430,17 +454,16 @@ begin
     ILogOptionHandler(FHandlers.Last).Options[GetAttribute(NameAttr)] :=
       GetAttribute(ValueAttr);
   end
-  else if strQName = PriorityTag then
+  else if strQName = LevelTag then
   begin
-    { Priority for a category. }
-    Name := UpperCase(GetAttribute(ValueAttr));
-    if (Name = InheritedPriority) and (FCategory.Name <> InternalRootName) then
-      FCategory.Priority := nil
+    { Level for a logger. }
+    Name := LowerCase(GetAttribute(ValueAttr));
+    if (Name = InheritedLevel) and (FLogger.Name <> InternalRootName) then
+      FLogger.Level := nil
     else
     begin
-      FCategory.Priority := GetPriority(Name);
-      LogLog.Debug('Category ' + FCategory.Name + ' priority set to ' +
-        FCategory.Priority.Name);
+      FLogger.Level := TLogLevel.GetLevel(Name);
+      LogLog.Debug(Format(LoggerLevelMsg, [FLogger.Name, FLogger.Level.Name]));
     end;
   end
   else if strQName = RendererTag then
@@ -451,12 +474,12 @@ begin
   end
   else if strQName = RootTag then
   begin
-    { Configure the root category. }
-    FCategory := FHierarchy.Root;
-    FCategory.LockCategory;
-    (FCategory as ILogOptionHandler)._AddRef;
-    FHandlers.Add(FCategory);
-    LogLog.Debug('Parsed root category');
+    { Configure the root logger. }
+    FLogger := FHierarchy.Root;
+    FLogger.LockLogger;
+    (FLogger as ILogOptionHandler)._AddRef;
+    FHandlers.Add(FLogger);
+    LogLog.Debug(ParsedRootMsg);
   end
 end;
 
@@ -472,7 +495,7 @@ end;
 procedure TLogXMLConfigurator.Error(const oLocator: IVBSAXLocator;
   var strErrorMessage: WideString; nErrorCode: Integer);
 begin
-  LogLog.Error(Format(MessageFormat, ['Error', strErrorMessage,
+  LogLog.Error(Format(SAXErrorMsg, [ErrorMsg, strErrorMessage,
     oLocator.LineNumber, oLocator.ColumnNumber, oLocator.SystemId]), nil);
 end;
 
@@ -480,9 +503,9 @@ end;
 procedure TLogXMLConfigurator.FatalError(const oLocator: IVBSAXLocator;
   var strErrorMessage: WideString; nErrorCode: Integer);
 begin
-  LogLog.Fatal(Format(MessageFormat, ['Fatal error', strErrorMessage,
+  LogLog.Fatal(Format(SAXErrorMsg, [FatalMsg, strErrorMessage,
     oLocator.LineNumber, oLocator.ColumnNumber, oLocator.SystemId]), nil);
-  LogLog.Fatal('Ignoring configuration file.');
+  LogLog.Fatal(IgnoringConfigMsg);
   Abort;
 end;
 
@@ -490,7 +513,7 @@ end;
 procedure TLogXMLConfigurator.IgnorableWarning(const oLocator: IVBSAXLocator;
   var strErrorMessage: WideString; nErrorCode: Integer);
 begin
-  LogLog.Warn(Format(MessageFormat, ['Warning', strErrorMessage,
+  LogLog.Warn(Format(SAXErrorMsg, [WarningMsg, strErrorMessage,
     oLocator.LineNumber, oLocator.ColumnNumber, oLocator.SystemId]), nil);
 end;
 
