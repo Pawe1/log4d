@@ -1,26 +1,23 @@
 # Set internal debugging
-log4d.debug=TRUE
+log4d.configDebug=true
 
-# Global disable level
-log4d.disable=INFO
+# Global logging level
+log4d.threshold=info
 
-# Override global disable level
-# log4d.disableOverride=TRUE
+# Set logger factory
+log4d.loggerFactory=TLogDefaultLoggerFactory
 
-# Set category factory
-log4d.categoryFactory=TLogDefaultCategoryFactory
+# Set root level
+log4d.rootLogger=warn,ODS
 
-# Set root priority
-log4d.rootCategory=WARN,ODS
+# Establish logger hierarchy
+log4d.logger.myapp=inherited,Mem1
+log4d.logger.myapp.more=debug,Mem2
+log4d.logger.myapp.other=info,Mem3,#Email
+log4d.logger.alt=error,Mem4,Fil1,Sckt
 
-# Establish category hierarchy
-log4d.category.myapp=INHERITED,Mem1
-log4d.category.myapp.more=DEBUG,Mem2
-log4d.category.myapp.other=INFO,Mem3,#Email
-log4d.category.alt=ERROR,Mem4,Fil1
-
-# myapp.other category doesn't log to its parents
-log4d.additive.myapp.other=FALSE
+# myapp.other logger doesn't log to its parents
+log4d.additive.myapp.other=false
 
 # Create root appender
 log4d.appender.ODS=TLogODSAppender
@@ -33,10 +30,7 @@ log4d.appender.Mem1.layout=TLogPatternLayout
 log4d.appender.Mem1.layout.pattern=%7r [%-8t] %p %c %x - %m%n
 log4d.appender.Mem1.filter1=TLogStringFilter
 log4d.appender.Mem1.filter1.match=x
-log4d.appender.Mem1.filter1.acceptOnMatch=TRUE
-log4d.appender.Mem1.filter2=TLogStringFilter
-log4d.appender.Mem1.filter2.match=y
-log4d.appender.Mem1.filter2.acceptOnMatch=FALSE
+log4d.appender.Mem1.filter1.acceptOnMatch=false
 
 log4d.appender.Mem2=TMemoAppender
 log4d.appender.Mem2.memo=memMyappMore
@@ -48,18 +42,19 @@ log4d.appender.Mem3.layout=TLogHTMLLayout
 
 log4d.appender.Mem4=TMemoAppender
 log4d.appender.Mem4.memo=memAlt
-log4d.appender.Mem4.layout=TLogXMLLayout
+log4d.appender.Mem4.layout=TLogSimpleLayout
+#TLogXMLLayout
 
 # Create a file appender
 log4d.appender.Fil1=TLogFileAppender
-log4d.appender.Fil1.append=TRUE
+log4d.appender.Fil1.append=true
 log4d.appender.Fil1.fileName=C:\Temp\Log4D.log
 log4d.appender.Fil1.errorHandler=TLogOnlyOnceErrorHandler
 log4d.appender.Fil1.layout=TLogPatternLayout
 log4d.appender.Fil1.layout.pattern=%r [%t] %p %c %x - %m%n
 
 # Create an e-mail appender
-log4d.appender.Email=TLogNMSMTPAppender
+log4d.appender.Email=TLogIndySMTPAppender
 log4d.appender.Email.bufferSize=10
 log4d.appender.Email.from=Log4D <log4d@log4d.com>
 log4d.appender.Email.host=mail.log4d.com
@@ -67,6 +62,11 @@ log4d.appender.Email.subject=Log4D Demonstration
 log4d.appender.Email.to=Administrator <admin@log4d.com>
 log4d.appender.Email.layout=TLogPatternLayout
 log4d.appender.Email.layout.pattern=%r [%t] %p %c %x - %m%n
+
+# Create a socket appender
+log4d.appender.Sckt=TLogIndySocketAppender
+log4d.appender.Sckt.host=localhost
+log4d.appender.Sckt.port=9009
 
 # Nominate renderers
 log4d.renderer.TComponent=TComponentRenderer

@@ -1,7 +1,7 @@
 object frmLog4DDemo: TfrmLog4DDemo
   Left = 192
   Top = 120
-  Width = 656
+  Width = 588
   Height = 610
   ActiveControl = edtMessage
   Caption = 'Log4D Demo'
@@ -22,34 +22,34 @@ object frmLog4DDemo: TfrmLog4DDemo
     Width = 2
     Height = 507
   end
-  object Panel1: TPanel
+  object pnlControls: TPanel
     Left = 0
     Top = 0
-    Width = 648
+    Width = 580
     Height = 76
     Align = alTop
     BevelOuter = bvNone
     TabOrder = 0
     object Label1: TLabel
-      Left = 21
+      Left = 22
       Top = 7
-      Width = 31
+      Width = 26
       Height = 13
       Alignment = taRightJustify
-      Caption = '&Priority'
-      FocusControl = cmbPriority
+      Caption = 'Le&vel'
+      FocusControl = cmbLevel
     end
     object Label2: TLabel
-      Left = 130
+      Left = 123
       Top = 7
-      Width = 42
+      Width = 33
       Height = 13
       Alignment = taRightJustify
-      Caption = '&Category'
-      FocusControl = cmbCategory
+      Caption = 'Lo&gger'
+      FocusControl = cmbLogger
     end
     object Label3: TLabel
-      Left = 9
+      Left = 5
       Top = 29
       Width = 43
       Height = 13
@@ -58,33 +58,35 @@ object frmLog4DDemo: TfrmLog4DDemo
       FocusControl = edtMessage
     end
     object edtMessage: TEdit
-      Left = 56
+      Left = 52
       Top = 26
-      Width = 205
+      Width = 193
       Height = 21
       Hint = 'Enter the message to be logged'
       TabOrder = 2
     end
     object btnLog: TButton
-      Left = 117
-      Top = 49
-      Width = 61
+      Left = 53
+      Top = 50
+      Width = 45
       Height = 20
-      Hint = 'Log the above message and priority'
+      Hint = 'Log the above message at the given level'
       Caption = '&Log'
       Default = True
       TabOrder = 3
       OnClick = btnLogClick
     end
-    object cmbCategory: TComboBox
-      Left = 176
+    object cmbLogger: TComboBox
+      Left = 160
       Top = 3
       Width = 85
       Height = 21
-      Hint = 'Select the category to perform the logging'
+      Hint = 'Select the logger to perform the logging'
       Style = csDropDownList
       ItemHeight = 13
+      ItemIndex = 0
       TabOrder = 1
+      Text = 'myapp'
       Items.Strings = (
         'myapp'
         'myapp.more'
@@ -92,61 +94,59 @@ object frmLog4DDemo: TfrmLog4DDemo
         'alt')
     end
     object grpFilter: TGroupBox
-      Left = 272
+      Left = 252
       Top = 3
-      Width = 85
+      Width = 41
       Height = 66
       Caption = '&Filter'
-      TabOrder = 4
+      TabOrder = 5
       object edtFilter: TEdit
-        Left = 33
-        Top = 14
+        Left = 9
+        Top = 22
         Width = 20
         Height = 21
-        Hint = 'Enter a character to filter by'
+        Hint = 'Exclude messages to '#39'myapp'#39' with this character'
         MaxLength = 1
         TabOrder = 0
-      end
-      object btnFilter: TButton
-        Left = 11
-        Top = 39
-        Width = 61
-        Height = 20
-        Hint = 'Include messages with the above character for category '#39'test'#39
-        Caption = 'Fil&ter'
-        TabOrder = 1
-        OnClick = btnFilterClick
+        OnChange = edtFilterChange
       end
     end
     object grpNDC: TGroupBox
-      Left = 366
+      Left = 300
       Top = 3
-      Width = 164
+      Width = 186
       Height = 66
       Caption = '&NDC'
-      TabOrder = 5
+      TabOrder = 6
+      object lblNDC: TLabel
+        Left = 8
+        Top = 44
+        Width = 121
+        Height = 13
+        AutoSize = False
+      end
       object edtNDC: TEdit
-        Left = 16
+        Left = 8
         Top = 13
-        Width = 134
+        Width = 121
         Height = 21
         Hint = 'Enter context information'
         TabOrder = 0
       end
       object btnPush: TButton
-        Left = 15
-        Top = 39
-        Width = 61
+        Left = 133
+        Top = 15
+        Width = 45
         Height = 20
-        Hint = 'Add the context information above to the stack'
+        Hint = 'Add the context information to the stack'
         Caption = 'P&ush'
         TabOrder = 1
         OnClick = btnPushClick
       end
       object btnPop: TButton
-        Left = 93
+        Left = 133
         Top = 39
-        Width = 61
+        Width = 45
         Height = 20
         Hint = 'Remove the latest context information from the stack'
         Caption = 'P&op'
@@ -154,25 +154,54 @@ object frmLog4DDemo: TfrmLog4DDemo
         OnClick = btnPopClick
       end
     end
-    object cmbPriority: TComboBox
-      Left = 56
+    object cmbLevel: TComboBox
+      Left = 52
       Top = 3
       Width = 63
       Height = 21
-      Hint = 'Select the priority of the message'
+      Hint = 'Select the level of the message'
       Style = csDropDownList
       ItemHeight = 13
       TabOrder = 0
     end
     object btnLoop: TButton
-      Left = 548
-      Top = 28
+      Left = 168
+      Top = 50
       Width = 75
       Height = 20
-      Hint = 'Loop through messages and an error'
+      Hint = 'Loop through info messages to a fatal error'
       Caption = 'Loop to &Error'
-      TabOrder = 6
+      TabOrder = 4
       OnClick = btnLoopClick
+    end
+    object grpThreshold: TGroupBox
+      Left = 492
+      Top = 3
+      Width = 81
+      Height = 66
+      Caption = 'T&hreshold'
+      TabOrder = 7
+      DesignSize = (
+        81
+        66)
+      object cmbThreshold: TComboBox
+        Left = 8
+        Top = 24
+        Width = 65
+        Height = 21
+        Hint = 'Set the overall threshold level for logging'
+        Style = csDropDownList
+        Anchors = [akTop, akRight]
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -10
+        Font.Name = 'MS Sans Serif'
+        Font.Style = []
+        ItemHeight = 13
+        ParentFont = False
+        TabOrder = 0
+        OnChange = cmbThresholdChange
+      end
     end
   end
   object pnlLeft: TPanel
@@ -183,104 +212,302 @@ object frmLog4DDemo: TfrmLog4DDemo
     Align = alLeft
     BevelOuter = bvNone
     TabOrder = 1
-    object lblMyApp: TLabel
-      Left = 0
-      Top = 0
-      Width = 284
-      Height = 13
-      Align = alTop
-      Caption = ' myapp'
-    end
     object splLeft: TSplitter
       Left = 0
-      Top = 256
+      Top = 264
       Width = 284
       Height = 3
       Cursor = crVSplit
       Align = alTop
       OnMoved = splLeftMoved
     end
-    object lblMyAppMore: TLabel
-      Left = 0
-      Top = 259
-      Width = 284
-      Height = 13
-      Align = alTop
-      Caption = ' myapp.more'
-    end
     object memMyApp: TMemo
       Left = 0
-      Top = 13
+      Top = 21
       Width = 284
       Height = 243
-      Hint = 'Output for category '#39'test'#39
+      Hint = 'Output for '#39'myapp'#39' logger'
       Align = alTop
+      ReadOnly = True
       ScrollBars = ssVertical
-      TabOrder = 0
+      TabOrder = 1
     end
     object memMyAppMore: TMemo
       Left = 0
-      Top = 272
+      Top = 288
       Width = 284
-      Height = 235
-      Hint = 'Output for category '#39'test.more'#39
+      Height = 219
+      Hint = 'Output for '#39'myapp.more'#39' logger'
       Align = alClient
+      ReadOnly = True
       ScrollBars = ssVertical
-      TabOrder = 1
+      TabOrder = 3
+    end
+    object pnlMyapp: TPanel
+      Left = 0
+      Top = 0
+      Width = 284
+      Height = 21
+      Align = alTop
+      Alignment = taLeftJustify
+      BevelOuter = bvNone
+      Caption = 'myapp'
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -10
+      Font.Name = 'MS Sans Serif'
+      Font.Style = [fsBold]
+      ParentFont = False
+      TabOrder = 0
+      DesignSize = (
+        284
+        21)
+      object chkMyappAdditive: TCheckBox
+        Left = 220
+        Top = 2
+        Width = 61
+        Height = 17
+        Hint = 'Add to parent logger as well?'
+        Anchors = [akTop, akRight]
+        Caption = 'Additive'
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -10
+        Font.Name = 'MS Sans Serif'
+        Font.Style = []
+        ParentFont = False
+        TabOrder = 1
+        OnClick = chkAdditiveChange
+      end
+      object cmbMyappLevel: TComboBox
+        Left = 148
+        Top = 0
+        Width = 65
+        Height = 21
+        Hint = 'Set the threshold for this logger'
+        Style = csDropDownList
+        Anchors = [akTop, akRight]
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -10
+        Font.Name = 'MS Sans Serif'
+        Font.Style = []
+        ItemHeight = 13
+        ParentFont = False
+        TabOrder = 0
+        OnChange = cmbLoggerLevelChange
+      end
+    end
+    object pnlMyappMore: TPanel
+      Left = 0
+      Top = 267
+      Width = 284
+      Height = 21
+      Align = alTop
+      Alignment = taLeftJustify
+      BevelOuter = bvNone
+      Caption = 'myapp.more'
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -10
+      Font.Name = 'MS Sans Serif'
+      Font.Style = [fsBold]
+      ParentFont = False
+      TabOrder = 2
+      DesignSize = (
+        284
+        21)
+      object chkMyappMoreAdditive: TCheckBox
+        Tag = 1
+        Left = 220
+        Top = 2
+        Width = 61
+        Height = 17
+        Hint = 'Add to parent logger as well?'
+        Anchors = [akTop, akRight]
+        Caption = 'Additive'
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -10
+        Font.Name = 'MS Sans Serif'
+        Font.Style = []
+        ParentFont = False
+        TabOrder = 1
+        OnClick = chkAdditiveChange
+      end
+      object cmbMyappMoreLevel: TComboBox
+        Tag = 1
+        Left = 148
+        Top = 0
+        Width = 65
+        Height = 21
+        Hint = 'Set the threshold for this logger'
+        Style = csDropDownList
+        Anchors = [akTop, akRight]
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -10
+        Font.Name = 'MS Sans Serif'
+        Font.Style = []
+        ItemHeight = 13
+        ParentFont = False
+        TabOrder = 0
+        OnChange = cmbLoggerLevelChange
+      end
     end
   end
   object pnlRight: TPanel
     Left = 286
     Top = 76
-    Width = 362
+    Width = 294
     Height = 507
     Align = alClient
     BevelOuter = bvNone
     TabOrder = 2
     object splRight: TSplitter
       Left = 0
-      Top = 256
-      Width = 362
+      Top = 264
+      Width = 294
       Height = 3
       Cursor = crVSplit
       Align = alTop
       OnMoved = splRightMoved
     end
-    object lblMyAppOther: TLabel
-      Left = 0
-      Top = 0
-      Width = 362
-      Height = 13
-      Align = alTop
-      Caption = ' myapp.other'
-    end
-    object lblAlt: TLabel
-      Left = 0
-      Top = 259
-      Width = 362
-      Height = 13
-      Align = alTop
-      Caption = ' alt'
-    end
     object memMyAppOther: TMemo
       Left = 0
-      Top = 13
-      Width = 362
+      Top = 21
+      Width = 294
       Height = 243
-      Hint = 'Output for category '#39'test.other'#39
+      Hint = 'Output for '#39'myapp.other'#39' logger'
       Align = alTop
+      ReadOnly = True
       ScrollBars = ssVertical
-      TabOrder = 0
+      TabOrder = 1
     end
     object memAlt: TMemo
       Left = 0
-      Top = 272
-      Width = 362
-      Height = 235
-      Hint = 'Output for category '#39'alt'#39
+      Top = 288
+      Width = 294
+      Height = 219
+      Hint = 'Output for '#39'alt'#39' logger'
       Align = alClient
+      ReadOnly = True
       ScrollBars = ssVertical
-      TabOrder = 1
+      TabOrder = 3
+    end
+    object pnlMyappOther: TPanel
+      Left = 0
+      Top = 0
+      Width = 294
+      Height = 21
+      Align = alTop
+      Alignment = taLeftJustify
+      BevelOuter = bvNone
+      Caption = 'myapp.other'
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -10
+      Font.Name = 'MS Sans Serif'
+      Font.Style = [fsBold]
+      ParentFont = False
+      TabOrder = 0
+      DesignSize = (
+        294
+        21)
+      object chkMyappOtherAdditive: TCheckBox
+        Tag = 2
+        Left = 230
+        Top = 2
+        Width = 61
+        Height = 17
+        Hint = 'Add to parent logger as well?'
+        Anchors = [akTop, akRight]
+        Caption = 'Additive'
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -10
+        Font.Name = 'MS Sans Serif'
+        Font.Style = []
+        ParentFont = False
+        TabOrder = 1
+        OnClick = chkAdditiveChange
+      end
+      object cmbMyappOtherLevel: TComboBox
+        Tag = 2
+        Left = 158
+        Top = 0
+        Width = 65
+        Height = 21
+        Hint = 'Set the threshold for this logger'
+        Style = csDropDownList
+        Anchors = [akTop, akRight]
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -10
+        Font.Name = 'MS Sans Serif'
+        Font.Style = []
+        ItemHeight = 13
+        ParentFont = False
+        TabOrder = 0
+        OnChange = cmbLoggerLevelChange
+      end
+    end
+    object pnlAlt: TPanel
+      Left = 0
+      Top = 267
+      Width = 294
+      Height = 21
+      Align = alTop
+      Alignment = taLeftJustify
+      BevelOuter = bvNone
+      Caption = 'alt'
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -10
+      Font.Name = 'MS Sans Serif'
+      Font.Style = [fsBold]
+      ParentFont = False
+      TabOrder = 2
+      DesignSize = (
+        294
+        21)
+      object chkAltAdditive: TCheckBox
+        Tag = 3
+        Left = 230
+        Top = 2
+        Width = 61
+        Height = 17
+        Hint = 'Add to parent logger as well?'
+        Anchors = [akTop, akRight]
+        Caption = 'Additive'
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -10
+        Font.Name = 'MS Sans Serif'
+        Font.Style = []
+        ParentFont = False
+        TabOrder = 1
+        OnClick = chkAdditiveChange
+      end
+      object cmbAltLevel: TComboBox
+        Tag = 3
+        Left = 158
+        Top = 0
+        Width = 65
+        Height = 21
+        Hint = 'Set the threshold for this logger'
+        Style = csDropDownList
+        Anchors = [akTop, akRight]
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -10
+        Font.Name = 'MS Sans Serif'
+        Font.Style = []
+        ItemHeight = 13
+        ParentFont = False
+        TabOrder = 0
+        OnChange = cmbLoggerLevelChange
+      end
     end
   end
 end
