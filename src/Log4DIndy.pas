@@ -342,7 +342,8 @@ end;
 { Send the message off. }
 procedure TLogIndySocketAppender.DoAppend(const Message: string);
 begin
-  FClient.Send(Message);
+  if Assigned(FClient) then
+    FClient.Send(Message);
 end;
 
 { Release the UDP client resource. }
@@ -425,8 +426,13 @@ begin
   Result := False;
 end;
 
-var
-  Index: Integer;
+procedure IndySocketAppenderFree;
+var Index: Integer;
+begin
+  for Index := 0 to Sockets.Count - 1 do
+    TLogIndySocketAppender(Sockets[Index]).Final;
+end;
+
 initialization
   { Registration of standard implementations. }
   RegisterAppender(TLogIndySMTPAppender);
@@ -439,7 +445,6 @@ finalization
   { The UDP clients in the socket appenders must be released
     in this unit so that they are freed before the
     supporting stack (IdWinSock2) is destroyed. }
-  for Index := 0 to Sockets.Count - 1 do
-    TLogIndySocketAppender(Sockets[Index]).Final;
+  IndySocketAppenderFree;
   Sockets.Free;
 end.
