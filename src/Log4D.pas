@@ -10,7 +10,16 @@ unit Log4D;
   Version 1.0 - 29 April 2001.
   Version 1.2 - 9 September 2003.
   Version 1.3 - 24 July 2004.
-  
+
+  changes by adasen:
+  - added threshold option to TLogCustomAppender (as in SkeletonAppender.java)
+  - use fmShareDenyWrite instead of fmShareExclusive in TLogFileAppender
+  - added TLogRollingFileAppender (as in RollingFileAppender.java)
+
+  changes by mhoenemann:
+  - reopen a newly created file stream in TLogFileAppender to get
+    fmShareDenyWrite on a new logfile (due to a bug in SysUtils.FileCreate())
+
 }
 
 interface
@@ -71,6 +80,8 @@ const
   { Special level value signifying inherited behaviour. }
   InheritedLevel = 'inherited';
 
+  { Threshold option for TLogCustomAppender. }
+  ThresholdOpt      = 'threshold';
   { Accept option for TLog*Filter. }
   AcceptMatchOpt = 'acceptOnMatch';
   { Appending option for TLogFileAppender. }
@@ -91,6 +102,13 @@ const
   PatternOpt     = 'pattern';
   { Title option for TLogHTMLLayout. }
   TitleOpt       = 'title';
+  { Maximum file size option for TLogRollingFileAppender }
+  MaxFileSizeOpt = 'maxFileSize';
+  { Maximum number of backup files option for TLogRollingFileAppender }
+  MaxBackupIndexOpt = 'maxBackupIndex';
+
+  DEFAULT_MAX_FILE_SIZE = 10*1024*1024;
+  DEFAULT_MAX_BACKUP_INDEX = 1;
 
 type
 {$IFDEF DELPHI4}
@@ -393,7 +411,7 @@ type
     FRenderers: TInterfaceList;
     FRoot: TLogLogger;
     FThreshold: TLogLevel;
-    procedure SetThreshold(const Level: TLogLevel); overload;
+    procedure SetThresholdProp(const Level: TLogLevel);
     procedure UpdateParent(const Logger: TLogLogger);
   protected
     FCriticalHierarchy: TRTLCriticalSection;
@@ -401,7 +419,7 @@ type
     constructor Create(Root: TLogLogger);
     destructor Destroy; override;
     property Root: TLogLogger read FRoot;
-    property Threshold: TLogLevel read FThreshold write SetThreshold;
+    property Threshold: TLogLevel read FThreshold write SetThresholdProp;
     procedure AddHierarchyEventListener(
       const Listener: ILogHierarchyEventListener);
     procedure AddRenderer(RenderedClass: TClass; Renderer: ILogRenderer);
@@ -418,7 +436,7 @@ type
     procedure RemoveHierarchyEventListener(
       const Listener: ILogHierarchyEventListener);
     procedure ResetConfiguration;
-    procedure SetThreshold(const Name: string); overload;
+    procedure SetThreshold(const Name: string);
     procedure Shutdown;
   end;
 
@@ -754,6 +772,7 @@ type
     FFilters: TInterfaceList;
     FLayout: ILogLayout;
     FName: string;
+    FThreshold : TLogLevel;
     function GetErrorHandler: ILogErrorHandler;
     function GetFilters: TInterfaceList;
     function GetLayout: ILogLayout;
@@ -769,6 +788,8 @@ type
     procedure DoAppend(const Message: string); overload; virtual; abstract;
     procedure WriteFooter; virtual;
     procedure WriteHeader; virtual;
+    procedure SetOption(const Name, Value: string); override;
+    function isAsSevereAsThreshold(level : TLogLevel) : boolean;
   public
     constructor Create(const Name: string; const Layout: ILogLayout = nil);
       reintroduce; virtual;
@@ -828,12 +849,45 @@ type
     FFileName: TFileName;
   protected
     procedure SetOption(const Name, Value: string); override;
+    procedure SetLogFile(const Name: string);
+    procedure CloseLogFile;
   public
     constructor Create(const Name, FileName: string;
       const Layout: ILogLayout = nil; const Append: Boolean = True);
       reintroduce; virtual;
     property FileName: TFileName read FFileName;
     property OpenAppend: Boolean read FAppend;
+  end;
+
+
+  { Send log messages to a file which uses logfile rotation
+
+    Accepts the following options:
+
+    # Class identification
+    log4d.appender.<name>=TLogRollingFileAppender
+    # Name of the file to write to, string, mandatory
+    log4d.appender.<name>.fileName=C:\Logs\App.log
+    # Whether to append to file, Boolean, optional, defaults to true
+    log4d.appender.<name>.append=false
+    # Max. file size accepts suffix "KB", "MB" and "GB", optional, default 10MB
+    log4d.appender.<name>.maxFileSize=10MB
+    # Max number of backup files, optional, default is 1
+    log4d.appender.<name>.maxBackupIndex=3
+  }
+  TLogRollingFileAppender = class(TLogFileAppender)
+  private
+    FMaxFileSize : integer;
+    FMaxBackupIndex : integer;
+    FCurrentSize : integer;
+  protected
+    procedure SetOption(const Name, Value: string); override;
+    procedure DoAppend(const msg: string); override;
+    procedure RollOver; virtual;        // just in case someone wants to override it...
+  public
+    procedure Init; override;
+    property MaxFileSize : integer read FMaxFileSize;
+    property MaxBackupIndex : integer read FMaxBackupIndex;
   end;
 
 { Configurators ---------------------------------------------------------------}
@@ -1979,7 +2033,7 @@ begin
 end;
 
 { Set the overall logging level. Cannot set a nil threshold. }
-procedure TLogHierarchy.SetThreshold(const Level: TLogLevel);
+procedure TLogHierarchy.SetThresholdProp(const Level: TLogLevel);
 begin
   if Level <> nil then
     FThreshold := Level;
@@ -2570,9 +2624,10 @@ procedure TLogCustomAppender.Append(const Event: TLogEvent);
 begin
   EnterCriticalSection(FCriticalAppender);
   try
-    if CheckEntryConditions then
-      if CheckFilters(Event) then
-        DoAppend(Event);
+    if isAsSevereAsThreshold(Event.Level) then
+      if CheckEntryConditions then
+        if CheckFilters(Event) then
+          DoAppend(Event);
   finally
     LeaveCriticalSection(FCriticalAppender);
   end;
@@ -2668,6 +2723,7 @@ begin
   FClosed       := False;
   FErrorHandler := TLogOnlyOnceErrorHandler.Create;
   FFilters      := TInterfaceList.Create;
+  FThreshold    := All;
 end;
 
 { Clear the list of filters by removing all the filters in it. }
@@ -2732,6 +2788,20 @@ begin
     DoAppend(Layout.Header);
 end;
 
+procedure TLogCustomAppender.SetOption(const Name, Value: string);
+begin
+  inherited SetOption(Name, Value);
+  if (Name = ThresholdOpt) and (Value <> '') then
+  begin
+    FThreshold := TLogLevel.GetLevel(Value, All);
+  end;
+end;
+
+function TLogCustomAppender.isAsSevereAsThreshold(level: TLogLevel): boolean;
+begin
+  Result := not ((FThreshold <> nil) and (level.Level < FThreshold.Level));
+end;
+
 { TLogNullAppender ------------------------------------------------------------}
 
 { Do nothing. }
@@ -2790,6 +2860,48 @@ begin
   SetOption(FileNameOpt, FileName);
 end;
 
+{ create file stream }
+procedure TLogFileAppender.SetLogFile(const Name: string);
+var
+  strPath: string;
+  f : TextFile;
+begin
+  CloseLogFile;
+  FFileName := Name;
+  if FAppend and FileExists(FFileName) then
+  begin
+    // append to existing file
+
+    FStream := TFileStream.Create(FFileName, fmOpenReadWrite or fmShareDenyWrite);
+    FStream.Seek(0, soFromEnd);
+  end
+  else
+  begin
+    // Check if directory exists
+    strPath := ExtractFileDir(FFileName);
+    if (strPath <> '') and  not DirectoryExists(strPath) then
+      ForceDirectories(strPath);
+
+    //FIX 04.10.2006 MHoenemann:
+    //  SysUtils.FileCreate() ignores any sharing option (like our fmShareDenyWrite),
+    // Creating new file
+    AssignFile(f, FFileName);
+    ReWrite(f);
+    CloseFile(f);
+    // now use this file
+    FStream := TFileStream.Create(FFileName, fmOpenReadWrite or fmShareDenyWrite);
+
+  end;
+  WriteHeader;
+end;
+
+{ close file stream }
+procedure TLogFileAppender.CloseLogFile;
+begin
+  if FStream <> nil then
+    FreeAndNil(FStream);
+end;
+
 procedure TLogFileAppender.SetOption(const Name, Value: string);
 begin
   inherited SetOption(Name, Value);
@@ -2801,22 +2913,91 @@ begin
     end
     else if (Name = FileNameOpt) and (Value <> '') then
     begin
-      if FStream <> nil then
-        FStream.Free;
-      FFileName := Value;
-      if FAppend and FileExists(FFileName) then
-      begin
-        FStream := TFileStream.Create(FFileName,
-          fmOpenReadWrite or fmShareExclusive);
-        FStream.Seek(0, soFromEnd);
-      end
-      else
-        FStream := TFileStream.Create(FFileName, fmCreate or fmShareExclusive);
-      WriteHeader;
+      SetLogFile(Value);    // changed by adasen
     end;
   finally
     LeaveCriticalSection(FCriticalAppender);
   end;
+end;
+
+{ TLogRollingFileAppender }
+
+procedure TLogRollingFileAppender.DoAppend(const msg: string);
+begin
+  if assigned(FStream) and (FCurrentSize = 0) then
+    FCurrentSize := FStream.Size;
+  FCurrentSize := FCurrentSize + Length(msg);   // should be faster than TFileStream.Size
+  if (FStream <> nil) and (FCurrentSize > FMaxFileSize) then
+  begin
+    FCurrentSize := 0;
+    RollOver;
+  end;
+  inherited;
+end;
+
+{ set defaults }
+procedure TLogRollingFileAppender.Init;
+begin
+  inherited;
+  FMaxFileSize := DEFAULT_MAX_FILE_SIZE;
+  FMaxBackupIndex := DEFAULT_MAX_BACKUP_INDEX;
+end;
+
+{ log file rotation }
+procedure TLogRollingFileAppender.RollOver;
+var i : integer;
+    filename : string;
+begin
+  // If maxBackups <= 0, then there is no file renaming to be done.
+  if FMaxBackupIndex > 0 then
+  begin
+    // Delete the oldest file, to keep Windows happy.
+    DeleteFile(FFileName + '.' + IntToStr(FMaxBackupIndex));
+    // Map (maxBackupIndex - 1), ..., 2, 1 to maxBackupIndex, ..., 3, 2
+    for i := FMaxBackupIndex - 1 downto 1 do
+    begin
+      filename := FFileName + '.' + IntToStr(i);
+      if FileExists(filename) then
+        RenameFile(filename, FFileName + '.' + IntToStr(i+1));
+    end;
+    // close file
+    CloseLogFile;
+    // Rename fileName to fileName.1
+    RenameFile(FFileName, FFileName + '.1');
+    // open new file
+    SetLogFile(FFileName);
+  end;
+end;
+
+procedure TLogRollingFileAppender.SetOption(const Name, Value: string);
+var suffix : string;
+begin
+  inherited SetOption(Name, Value);
+  EnterCriticalSection(FCriticalAppender);
+  try
+    if (Name = MaxFileSizeOpt) and (Value <> '') then
+    begin
+      // check suffix
+      suffix := Copy(Value, Length(Value)-1, 2);
+      if suffix = 'KB' then
+        FMaxFileSize := StrToIntDef(Copy(Value, 1, Length(Value)-2), 0) * 1024
+      else if suffix = 'MB' then
+        FMaxFileSize := StrToIntDef(Copy(Value, 1, Length(Value)-2), 0) * 1024 * 1024
+      else if suffix = 'GB' then
+        FMaxFileSize := StrToIntDef(Copy(Value, 1, Length(Value)-2), 0) * 1024 * 1024 * 1024
+      else
+        FMaxFileSize := StrToIntDef(Value, 0);
+      if FMaxFileSize = 0 then
+        FMaxFileSize := DEFAULT_MAX_FILE_SIZE;
+    end
+    else if (Name = MaxBackupIndexOpt) and (Value <> '') then
+    begin
+      FMaxBackupIndex := StrToIntDef(Value, DEFAULT_MAX_BACKUP_INDEX);
+    end;
+  finally
+    LeaveCriticalSection(FCriticalAppender);
+  end;
+
 end;
 
 { OptionConvertors ------------------------------------------------------------}
@@ -3650,8 +3831,21 @@ end;
 
 {$ENDIF}
 
-var
-  Index: Integer;
+procedure LevelFree;
+var Index : Integer;
+begin
+  for Index := 0 to Levels.Count - 1 do
+    TObject(Levels[Index]).Free;
+end;
+
+procedure NDCFree;
+var Index : Integer;
+begin
+  for Index := 0 to NDC.Count - 1 do
+    NDC.Objects[Index].Free;
+  NDC.Free;
+end;
+
 initialization
   { Timestamping. }
   StartTime := Now;
@@ -3702,6 +3896,7 @@ initialization
   RegisterAppender(TLogNullAppender);
   RegisterAppender(TLogODSAppender);
   RegisterAppender(TLogStreamAppender);
+  RegisterAppender(TLogRollingFileAppender);
   { Standard logger factory and hierarchy. }
   DefaultLoggerFactory := TLogDefaultLOggerFactory.Create;
   DefaultLoggerFactory._AddRef;
@@ -3710,9 +3905,9 @@ initialization
   LogLog           := TLogLog.Create;
   LogLog.Hierarchy := DefaultHierarchy;
 finalization
+
 {$IFDEF DELPHI4}
-  for Index := 0 to Levels.Count - 1 do
-    TObject(Levels[Index]).Free;
+  LevelFree;
 {$ENDIF}
   Levels.Free;
   DefaultLoggerFactory._Release;
@@ -3733,9 +3928,7 @@ finalization
   RendererNames.Free;
   RendererClasses.Free;
   { NDC. }
-  for Index := 0 to NDC.Count - 1 do
-    NDC.Objects[Index].Free;
-  NDC.Free;
+  NDCFree;
   { Internal logging. }
   LogLog.Free;
   { Synchronisation. }
