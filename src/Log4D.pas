@@ -32,6 +32,13 @@ unit Log4D;
   - reopen a newly created file stream in TLogFileAppender to get
     fmShareDenyWrite on a new logfile (due to a bug in SysUtils.FileCreate())
 
+  changes by aweber:
+  - changed TLogRollingFileAppender.RollOver from protected to public
+    so that it can be called on purpose (as in Java)
+  - added ILogRollingFileAppender in order to be able to use RollOver
+  - moved all methods of TLogCustomAppender from private to protected in order
+    to be able to subclass it properly
+
 }
 
 interface
@@ -785,6 +792,8 @@ type
     FLayout: ILogLayout;
     FName: string;
     FThreshold : TLogLevel;
+  protected
+    FCriticalAppender: TRTLCriticalSection;
     function GetErrorHandler: ILogErrorHandler;
     function GetFilters: TInterfaceList;
     function GetLayout: ILogLayout;
@@ -792,8 +801,6 @@ type
     procedure SetErrorHandler(const ErrorHandler: ILogErrorHandler);
     procedure SetLayout(const Layout: ILogLayout);
     procedure SetName(const Name: string);
-  protected
-    FCriticalAppender: TRTLCriticalSection;
     function CheckEntryConditions: Boolean; virtual;
     function CheckFilters(const Event: TLogEvent): Boolean; virtual;
     procedure DoAppend(const Event: TLogEvent); overload; virtual;
@@ -871,6 +878,12 @@ type
     property OpenAppend: Boolean read FAppend;
   end;
 
+  { Implement this interface for your own strategies
+    for printing log statements. }
+  ILogRollingFileAppender = interface(ILogAppender)
+    ['{49981B61-840B-440F-A444-BF11A91D1876}']
+    procedure RollOver;
+  end;
 
   { Send log messages to a file which uses logfile rotation
 
@@ -887,7 +900,7 @@ type
     # Max number of backup files, optional, default is 1
     log4d.appender.<name>.maxBackupIndex=3
   }
-  TLogRollingFileAppender = class(TLogFileAppender)
+  TLogRollingFileAppender = class(TLogFileAppender, ILogRollingFileAppender)
   private
     FMaxFileSize : integer;
     FMaxBackupIndex : integer;
@@ -895,9 +908,9 @@ type
   protected
     procedure SetOption(const Name, Value: string); override;
     procedure DoAppend(const msg: string); override;
-    procedure RollOver; virtual;        // just in case someone wants to override it...
   public
     procedure Init; override;
+    procedure RollOver; virtual;        // just in case someone wants to override it...
     property MaxFileSize : integer read FMaxFileSize;
     property MaxBackupIndex : integer read FMaxBackupIndex;
   end;
@@ -1431,11 +1444,11 @@ begin
     Result := '';
 end;
 
-{ Return the embedded exception's message (if there is one). }
+{ Return the embedded exception's message and classname (if there is one). }
 function TLogEvent.GetErrorMessage: string;
 begin
   if Error <> nil then
-    Result := Error.Message
+    Result := Error.Message + ' (' + Error.ClassName + ')'
   else
     Result := '';
 end;
@@ -2270,7 +2283,7 @@ end;
   Pattern characters are as follows:
   c - Logger name, e.g. myapp.more
   C - Class name of caller - not implemented
-  e - Message from the exception associated with the event
+  e - Message and class name from the exception associated with the event
   d - Current date and time, using date format set as option
   F - File name of calling class - not implemented
   l - Name and location within calling method - not implemented
