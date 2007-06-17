@@ -48,7 +48,7 @@
 
   <!-- Appender to a file, using pattern layout -->
   <appender name="Fil1" class="TLogFileAppender">
-    <param name="filename" value="C:\Temp\Log4D.log"/>
+    <param name="fileName" value="C:\Temp\Log4D.log"/>
     <layout class="TLogPatternLayout">
       <param name="pattern" value="%r [%t] %p %c %x - %m%n"/>
     </layout>
