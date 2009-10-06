@@ -44,7 +44,7 @@ type
     function Format(const LoggerName, LevelName: string;
       const LevelValue, ThreadId: Integer; const Timestamp: TDateTime;
       const ElapsedTime: Integer;
-      const Message, NDC, ErrorMsg, ErrorClass: string): string; overload;
+      const Message, NDC, ErrorMsg, ErrorClass: string): string; reintroduce; overload; 
     function IgnoresException: Boolean; override;
   end;
 
@@ -294,7 +294,11 @@ var
   XMLReader: IVBSAXXMLReader;
 begin
   FHierarchy := Hierarchy;
+{$ifdef MSSAX}
+  XMLReader  := ComsSAXXMLReader.Create;
+{$else}
   XMLReader  := CoSAXXMLReader.Create;
+{$endif}
   XMLReader.ContentHandler := Self;
   XMLReader.ErrorHandler   := Self;
   XMLReader.ParseURL(ConfigURL);
@@ -309,7 +313,11 @@ var
 begin
   Stream     := TStreamAdapter.Create(Document);
   FHierarchy := Hierarchy;
+{$ifdef MSSAX}
+  XMLReader  := ComsSAXXMLReader.Create;
+{$else}
   XMLReader  := CoSAXXMLReader.Create;
+{$endif}
   XMLReader.ContentHandler := Self;
   XMLReader.ErrorHandler   := Self;
   XMLReader.Parse(Stream);
@@ -395,10 +403,17 @@ var
   end;
 
 begin
+try
   if strQName = AppenderTag then
   begin
     { New appender. }
     FAppender := FindAppender(GetAttribute(ClassAttr));
+    // if Appender is not found use NullAppender
+    if FAppender = nil then
+    begin
+      LogLog.Error(Format(NoAppenderMsg, [GetAttribute(ClassAttr)]));
+      FAppender := FindAppender('TLogNullAppender');
+    end;
     if not Assigned(FAppender) then
       Abort;
     FAppender.Name := GetAttribute(NameAttr);
@@ -493,6 +508,14 @@ begin
     FHandlers.Add(FLogger);
     LogLog.Debug(ParsedRootMsg);
   end
+except
+  on E: Exception do
+  begin
+    LogLog.Debug('Exception', E);
+    raise;
+  end;
+end;
+
 end;
 
 procedure TLogXMLConfigurator.StartPrefixMapping(var strPrefix: WideString;
