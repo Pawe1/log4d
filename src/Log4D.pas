@@ -16,7 +16,7 @@ unit Log4D;
   Logging for Delphi.
   Based on log4j Java package from Apache
   (http://jakarta.apache.org/log4j/docs/index.html).
-  Currently based on log4j 1.2.8.
+  Currently based on log4j 1.2.12
 
   Written by Keith Wood (kbwood@iprimus.com.au).
   Version 1.0 - 29 April 2001.
