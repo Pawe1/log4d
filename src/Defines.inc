@@ -1,44 +1,19 @@
-{ Define flags for different Delphi versions }
+{**************************************************************************************************}
+{                                                                                                  }
+{  The contents of this file are subject to the Mozilla Public License Version 1.1 (the "License");}
+{  you may not use this file except in compliance with the License. You may obtain a copy of the   }
+{  License at http://www.mozilla.org/MPL/                                                          }
+{                                                                                                  }
+{  Software distributed under the License is distributed on an "AS IS" basis, WITHOUT WARRANTY OF  }
+{  ANY KIND, either express or implied. See the License for the specific language governing rights }
+{  and limitations under the License.                                                              }
+{                                                                                                  }
+{**************************************************************************************************}
 
-{$IFDEF VER120}  { Delphi 4 }
-{$DEFINE DELPHI4}
-{$DEFINE DELPHI4_UP}
-{$ENDIF}
 
-{$IFDEF VER130}  { Delphi 5 }
-{$DEFINE DELPHI5}
-{$DEFINE DELPHI4_UP}
-{$DEFINE DELPHI5_UP}
-{$ENDIF}
+{$I jedi.inc} // Use a common definition file for delphi compiler versions
 
-{$IFDEF VER140}  { Delphi 6 }
-{$DEFINE DELPHI6}
-{$DEFINE DELPHI4_UP}
-{$DEFINE DELPHI5_UP}
-{$DEFINE DELPHI6_UP}
-{$ENDIF}
+{ In the moment there are no special defines for Log4D }
 
-{$IFDEF VER150}  { Delphi 7 }
-{$DEFINE DELPHI7}
-{$DEFINE DELPHI4_UP}
-{$DEFINE DELPHI5_UP}
-{$DEFINE DELPHI6_UP}
-{$DEFINE DELPHI7_UP}
-{$ENDIF}
-
-{$IFDEF VER170}  { Delphi 2005 }
-{$DEFINE DELPHI9}
-{$DEFINE DELPHI4_UP}
-{$DEFINE DELPHI5_UP}
-{$DEFINE DELPHI6_UP}
-{$DEFINE DELPHI7_UP}
-{$ENDIF}
-
-{$IFDEF VER180}  { Delphi 2006 }
-{$DEFINE DELPHI10}
-{$DEFINE DELPHI4_UP}
-{$DEFINE DELPHI5_UP}
-{$DEFINE DELPHI6_UP}
-{$DEFINE DELPHI7_UP}
-
-{$ENDIF}
+{.$DEFINE MSXML4}
+{.$DEFINE MSSAX}

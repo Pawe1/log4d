@@ -58,7 +58,7 @@ uses
   SysUtils;
 
 const
-  Log4DVersion = '1.2';
+  Log4DVersion = '1.2.12';
 
   { Default pattern string for log output.
     Shows the application supplied message. }
@@ -205,6 +205,7 @@ const
   WarnValue  = 30000;
   InfoValue  = 20000;
   DebugValue = 10000;
+  TraceValue =  5000;
   AllValue   = Low(Integer);
 
 var
@@ -216,6 +217,7 @@ var
   Warn:  TLogLevel;
   Info:  TLogLevel;
   Debug: TLogLevel;
+  Trace: TLogLevel;
   All:   TLogLevel;
 
 { NDC -------------------------------------------------------------------------}
@@ -358,6 +360,7 @@ type
     function IsFatalEnabled: Boolean;
     function IsInfoEnabled: Boolean;
     function IsWarnEnabled: Boolean;
+    function IsTraceEnabled: Boolean;
     procedure LockLogger;
     procedure Log(const LogLevel: TLogLevel; const Message: string;
       const Err: Exception = nil); overload;
@@ -366,6 +369,10 @@ type
     procedure RemoveAllAppenders;
     procedure RemoveAppender(const Appender: ILogAppender); overload;
     procedure RemoveAppender(const Name: string); overload;
+    procedure Trace(const Message: string; const Err: Exception = nil);
+      overload; virtual;
+    procedure Trace(const Message: TObject; const Err: Exception = nil);
+      overload; virtual;
     procedure UnlockLogger;
     procedure Warn(const Message: string; const Err: Exception = nil);
       overload; virtual;
@@ -1718,6 +1725,11 @@ begin
   Result := IsEnabledFor(Log4D.Info);
 end;
 
+function TLogLogger.IsTraceEnabled: Boolean;
+begin
+  Result := IsEnabledFor(Log4D.Trace);
+end;
+
 function TLogLogger.IsWarnEnabled: Boolean;
 begin
   Result := IsEnabledFor(Log4D.Warn);
@@ -1782,6 +1794,16 @@ begin
   finally
     UnlockLogger;
   end;
+end;
+
+procedure TLogLogger.Trace(const Message: string; const Err: Exception);
+begin
+  Log(Log4D.Trace, Message, Err);
+end;
+
+procedure TLogLogger.Trace(const Message: TObject; const Err: Exception);
+begin
+  Log(Log4D.Trace, Message, Err);
 end;
 
 { Release synchronised access to the logger. }
@@ -3882,6 +3904,7 @@ initialization
   Levels.OwnsObjects := True;
 {$ENDIF}
   All   := TLogLevel.Create('all',   AllValue);
+  Trace := TLogLevel.Create('trace', TraceValue);
   Debug := TLogLevel.Create('debug', DebugValue);
   Info  := TLogLevel.Create('info',  InfoValue);
   Warn  := TLogLevel.Create('warn',  WarnValue);
