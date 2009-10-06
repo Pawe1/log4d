@@ -22,6 +22,7 @@ unit Log4D;
   Version 1.0 - 29 April 2001.
   Version 1.2 - 9 September 2003.
   Version 1.3 - 24 July 2004.
+  Version 1.2.12 - 6 October 2009
 
   changes by adasen:
   - added threshold option to TLogCustomAppender (as in SkeletonAppender.java)
@@ -38,6 +39,11 @@ unit Log4D;
   - added ILogRollingFileAppender in order to be able to use RollOver
   - moved all methods of TLogCustomAppender from private to protected in order
     to be able to subclass it properly
+
+  changes by ahesse:
+  - add jedi.in for compiler version switches
+  - add trace methods like in log4j 1.2.12
+  - change version back to 1.2.12 to reflect log4j version
 
 }
 
