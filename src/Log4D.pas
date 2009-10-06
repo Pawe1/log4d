@@ -881,8 +881,8 @@ type
     FFileName: TFileName;
   protected
     procedure SetOption(const Name, Value: string); override;
-    procedure SetLogFile(const Name: string);
-    procedure CloseLogFile;
+    procedure SetLogFile(const Name: string); virtual;
+    procedure CloseLogFile; virtual;
   public
     constructor Create(const Name, FileName: string;
       const Layout: ILogLayout = nil; const Append: Boolean = True);
