@@ -41,9 +41,10 @@ unit Log4D;
     to be able to subclass it properly
 
   changes by ahesse:
-  - add jedi.in for compiler version switches
+  - add jedi.inc for compiler version switches
   - add trace methods like in log4j 1.2.12
   - change version back to 1.2.12 to reflect log4j version
+  - add Encoding to TLogCustomAppender
 
 }
 
@@ -107,6 +108,8 @@ const
 
   { Threshold option for TLogCustomAppender. }
   ThresholdOpt      = 'threshold';
+  { Encoding option for TLogCustomAppender. }
+  EncodingOpt = 'encoding';
   { Accept option for TLog*Filter. }
   AcceptMatchOpt = 'acceptOnMatch';
   { Appending option for TLogFileAppender. }
@@ -805,12 +808,19 @@ type
     FLayout: ILogLayout;
     FName: string;
     FThreshold : TLogLevel;
+    {$IFDEF UNICODE}
+    FEncoding: TEncoding;
+    {$ENDIF UNICODE}
   protected
     FCriticalAppender: TRTLCriticalSection;
     function GetErrorHandler: ILogErrorHandler;
     function GetFilters: TInterfaceList;
     function GetLayout: ILogLayout;
     function GetName: string;
+    {$IFDEF UNICODE}
+    function GetEncoding: TEncoding;
+    procedure SetEncoding(const Value: TEncoding);
+    {$ENDIF UNICODE}
     procedure SetErrorHandler(const ErrorHandler: ILogErrorHandler);
     procedure SetLayout(const Layout: ILogLayout);
     procedure SetName(const Name: string);
@@ -826,8 +836,7 @@ type
     constructor Create(const Name: string; const Layout: ILogLayout = nil);
       reintroduce; virtual;
     destructor Destroy; override;
-    property ErrorHandler: ILogErrorHandler read GetErrorHandler
-      write SetErrorHandler;
+    property ErrorHandler: ILogErrorHandler read GetErrorHandler write SetErrorHandler;
     property Filters: TInterfaceList read GetFilters;
     property Layout: ILogLayout read GetLayout write SetLayout;
     property Name: string read GetName write SetName;
@@ -838,6 +847,9 @@ type
     procedure RemoveAllFilters; virtual;
     procedure RemoveFilter(const Filter: ILogFilter); virtual;
     function RequiresLayout: Boolean; virtual;
+    {$IFDEF UNICODE}
+    property Encoding: TEncoding read GetEncoding write SetEncoding;
+    {$ENDIF UNICODE}
   end;
 
   { Discard log messages. }
@@ -1024,6 +1036,11 @@ function FindRenderer(const ClassName: string): ILogRenderer;
 { Convert string value to a Boolean, with default. }
 function StrToBool(Value: string; const Default: Boolean): Boolean;
 
+{$IFDEF UNICODE}
+{ Convert string encoding value to a default TEncoding. }
+function FindEncodingFromName(const Name: string): TEncoding;
+{$ENDIF UNICODE}
+
 {$IFDEF LINUX}
 procedure EnterCriticalSection(var CS: TCriticalSection);
 procedure LeaveCriticalSection(var CS: TCriticalSection);
@@ -1042,6 +1059,11 @@ var
   LogLog: TLogLog;
 
 implementation
+
+{$IFDEF UNICODE}
+uses
+  Consts;
+{$ENDIF UNICODE}
 
 const
   CRLF = #13#10;
@@ -2801,6 +2823,23 @@ begin
   Result := True;
 end;
 
+{$IFDEF UNICODE}
+function TLogCustomAppender.GetEncoding: TEncoding;
+begin
+  if (FEncoding = nil) then
+    Result := TEncoding.Default
+  else
+    Result := FEncoding;
+end;
+
+procedure TLogCustomAppender.SetEncoding(const Value: TEncoding);
+begin
+  if (FEncoding <> nil) and not TEncoding.IsStandardEncoding(FEncoding) then
+    FEncoding.Free;
+  FEncoding := Value;
+end;
+{$ENDIF UNICODE}
+
 { Set the error handler for this appender - it cannot be nil. }
 procedure TLogCustomAppender.SetErrorHandler(
   const ErrorHandler: ILogErrorHandler);
@@ -2847,7 +2886,13 @@ begin
   if (Name = ThresholdOpt) and (Value <> '') then
   begin
     FThreshold := TLogLevel.GetLevel(Value, All);
-  end;
+  end
+  {$IFDEF UNICODE}
+  else if (Name = EncodingOpt) then
+  begin
+    Encoding := FindEncodingFromName(Value);
+  end
+  {$ENDIF}
 end;
 
 function TLogCustomAppender.isAsSevereAsThreshold(level: TLogLevel): boolean;
@@ -2893,7 +2938,11 @@ var
 begin
   if FStream <> nil then
   begin
+    {$IFDEF UNICODE}
+    StrStream := TStringStream.Create(Message, Encoding, False);
+    {$ELSE}
     StrStream := TStringStream.Create(Message);
+    {$ENDIF}
     try
       FStream.CopyFrom(StrStream, 0);
     finally
@@ -3066,6 +3115,26 @@ begin
   else
     Result := Default;
 end;
+
+{$IFDEF UNICODE}
+function FindEncodingFromName(const Name: string): TEncoding;
+begin
+  Result := nil;
+  if SameText(Name, SANSIEncoding) then
+    Result := TEncoding.Default
+  else if SameText(Name, SASCIIEncoding) then
+    Result := TEncoding.ASCII
+  else if SameText(Name, SUnicodeEncoding) then
+    Result := TEncoding.Unicode
+  else if SameText(Name, SBigEndianEncoding) then
+    Result := TEncoding.BigEndianUnicode
+  else if SameText(Name, SUTF7Encoding) then
+    Result := TEncoding.UTF7
+  else if SameText(Name, SUTF8Encoding) then
+    Result := TEncoding.UTF8;
+end;
+{$ENDIF UNICODE}
+
 
 { TAppender -------------------------------------------------------------------}
 
