@@ -45,6 +45,8 @@ unit Log4D;
   - add trace methods like in log4j 1.2.12
   - change version back to 1.2.12 to reflect log4j version
   - add Encoding to TLogCustomAppender
+  - make TLogLevel.Create() public to add User defined Log Levels
+  - TLogLogger.IsEnabledFor() must use the same logic as TLogLogger.Log()
 
 }
 
@@ -188,9 +190,8 @@ type
   private
     FLevel: Integer;
     FName: string;
-  protected
-    constructor Create(Name: string; Level: Integer);
   public
+    constructor Create(Name: string; Level: Integer);
     property Level: Integer read FLevel;
     property Name: string read FName;
     function IsGreaterOrEqual(LogLevel: TLogLevel): Boolean;
@@ -1733,9 +1734,10 @@ begin
   Result := IsEnabledFor(Log4D.Debug);
 end;
 
+{ Hierarchy can disable logging at a global level. }
 function TLogLogger.IsEnabledFor(const LogLevel: TLogLevel): Boolean;
 begin
-  Result := LogLevel.IsGreaterOrEqual(Level);
+  Result := not Hierarchy.IsDisabled(LogLevel.Level) and LogLevel.IsGreaterOrEqual(Level);
 end;
 
 function TLogLogger.IsErrorEnabled: Boolean;
@@ -1770,20 +1772,14 @@ begin
 end;
 
 { Hierarchy can disable logging at a global level. }
-procedure TLogLogger.Log(const LogLevel: TLogLevel; const Message: string;
-  const Err: Exception);
+procedure TLogLogger.Log(const LogLevel: TLogLevel; const Message: string; const Err: Exception);
 begin
-  if Hierarchy.IsDisabled(LogLevel.Level) then
-    Exit;
   if IsEnabledFor(LogLevel) then
     DoLog(LogLevel, Message, Err);
 end;
 
-procedure TLogLogger.Log(const LogLevel: TLogLevel; const Message: TObject;
-  const Err: Exception);
+procedure TLogLogger.Log(const LogLevel: TLogLevel; const Message: TObject; const Err: Exception);
 begin
-  if Hierarchy.IsDisabled(LogLevel.Level) then
-    Exit;
   if IsEnabledFor(LogLevel) then
     DoLog(LogLevel, Message, Err);
 end;
