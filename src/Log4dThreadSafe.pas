@@ -53,8 +53,19 @@ uses SysUtils;
 { TLogThreadSafeAppender }
 
 destructor TLogThreadSafeAppender.Destroy;
+var
+  pc: PChar;
+  AList: TList;
 begin
   FThread.Terminate;
+  FThread.WaitFor;
+  FThread.Free;
+  // clear FMessages
+  AList := FMessages.LockList();
+  for pc in AList do
+    StrDispose(pc);
+  AList.Clear;
+  FMessages.UnlockList;
   FreeAndNil(FMessages);
   inherited;
 end;
@@ -86,7 +97,7 @@ end;
 constructor TAppenderThread.Create(appender: TLogThreadSafeAppender);
 begin
   inherited Create(false);
-  FreeOnTerminate := true;
+  // FreeOnTerminate := true;
   OnTerminate := Finis;
 
   FAppender := appender;
