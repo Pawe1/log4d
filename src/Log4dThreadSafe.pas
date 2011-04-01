@@ -54,8 +54,8 @@ uses SysUtils;
 
 destructor TLogThreadSafeAppender.Destroy;
 begin
-  FMessages.Free();
-  FThread.Terminate();
+  FThread.Terminate;
+  FreeAndNil(FMessages);
   inherited;
 end;
 
@@ -70,13 +70,15 @@ procedure TLogThreadSafeAppender.DoAppend(const msg: string);
 var
   pc: PChar;
 begin
-  // Add a copy of the new message to the queue
-  pc := PChar(msg);
-  pc := StrNew(pc);
-  FMessages.Add(pc);
-
-  // Unblock the GUI appender thread
-  FThread.Signal();
+  if Assigned(FMessages) then
+  begin
+    // Add a copy of the new message to the queue
+    pc := PChar(msg);
+    pc := StrNew(pc);
+    FMessages.Add(pc);
+    // Unblock the GUI appender thread
+    FThread.Signal();
+  end;
 end;
 
 { TAppenderThread }
@@ -94,8 +96,8 @@ end;
 
 procedure TAppenderThread.Finis(Sender: TObject);
 begin
-  FReady.Free();
-  FMessages.Free();
+  FreeAndNil(FReady);
+  FreeAndNil(FMessages);
 end;
 
 procedure TAppenderThread.Execute;
@@ -129,7 +131,8 @@ end;
 
 procedure TAppenderThread.Signal;
 begin
-  FReady.SetEvent();
+  if Assigned(FReady) then
+    FReady.SetEvent;
 end;
 
 end.
