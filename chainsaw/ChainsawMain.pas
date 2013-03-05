@@ -67,6 +67,7 @@ type
     udpServer: TIdUDPServer;
     dlgOpen: TOpenDialog;
     dlgSave: TSaveDialog;
+    btnClearLog: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure btnClearClick(Sender: TObject);
@@ -85,8 +86,7 @@ type
     procedure mniSaveClick(Sender: TObject);
     procedure popMenuPopup(Sender: TObject);
     procedure srcLoggingDataChange(Sender: TObject; Field: TField);
-    procedure udpServerUDPRead(Sender: TObject; AData: TStream;
-      ABinding: TIdSocketHandle);
+    procedure udpServerUDPRead(AThread: TIdUDPListenerThread; AData: TBytes; ABinding: TIdSocketHandle);
   private
     FClearing: Boolean;
     procedure Configure;
@@ -103,7 +103,10 @@ implementation
 {$R *.dfm}
 
 uses
-  ChainsawConfig, ChainsawFiler, ChainsawData;
+  IdGlobal,
+  ChainsawConfig,
+  ChainsawFiler,
+  ChainsawData;
 
 { Initialise level lists and dialogs. }
 procedure TfrmChainsaw.FormCreate(Sender: TObject);
@@ -147,7 +150,7 @@ begin
   edtNDC.Text                 := '';
   chkNDCIgnoreCase.Checked    := False;
   datStartDate.SetFocus;
-  FClearing                   := True;
+  FClearing                   := False;
   FilterChange(nil);
 end;
 
@@ -272,8 +275,7 @@ end;
 { Empty the dataset after confirmation. }
 procedure TfrmChainsaw.mniClearClick(Sender: TObject);
 begin
-  if MessageDlg('Clear logging events?', mtConfirmation, [mbYes, mbNo], 0) =
-      mrYes then
+  if MessageDlg('Clear logging events?', mtConfirmation, [mbYes, mbNo], 0) = mrYes then
     dtmLogging.EmptyDataSet;
 end;
 
@@ -425,10 +427,8 @@ end;
   message#9threadId#9timestamp(yyyymmddhhnnsszzz)#9elapsedTime(ms)#9
   levelName#9levelValue#9loggerName#9NDC#9errorMessage#9errorClass
   This is the format used by default by the TLogIndySocketAppender. }
-procedure TfrmChainsaw.udpServerUDPRead(Sender: TObject; AData: TStream;
-  ABinding: TIdSocketHandle);
+procedure TfrmChainsaw.udpServerUDPRead(AThread: TIdUDPListenerThread; AData: TBytes; ABinding: TIdSocketHandle);
 var
-  LogStream: TStringStream;
   Event, Value: string;
   Index, Field: Integer;
   Timestamp: TDateTime;
@@ -436,10 +436,7 @@ var
   NDC, ErrorMessage, ErrorClass: string;
   ElapsedTime, LevelValue: Integer;
 begin
-  LogStream := TStringStream.Create('');
-  try
-    LogStream.CopyFrom(AData, AData.Size);
-    Event := LogStream.DataString;
+    Event := BytesToString(AData);
     if Event = '' then
       Exit;
     ElapsedTime := 0;
@@ -487,9 +484,6 @@ begin
     if LevelValue >= frmConfig.Threshold.Level then
       dtmLogging.AddLog(Message, ThreadId, Timestamp, ElapsedTime, LevelName,
         LevelValue, LoggerName, NDC, ErrorMessage, ErrorClass);
-  finally
-    LogStream.Free;
-  end;
 end;
 
 end.

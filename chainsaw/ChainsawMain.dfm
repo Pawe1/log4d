@@ -1,9 +1,9 @@
 object frmChainsaw: TfrmChainsaw
   Left = 192
   Top = 133
-  Width = 631
-  Height = 621
   Caption = 'Chainsaw'
+  ClientHeight = 563
+  ClientWidth = 615
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -15,8 +15,8 @@ object frmChainsaw: TfrmChainsaw
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   DesignSize = (
-    623
-    575)
+    615
+    563)
   PixelsPerInch = 96
   TextHeight = 13
   object Label1: TLabel
@@ -70,13 +70,13 @@ object frmChainsaw: TfrmChainsaw
     Left = 4
     Top = 128
     Width = 613
-    Height = 281
+    Height = 261
     Anchors = [akLeft, akTop, akRight, akBottom]
     DataSource = srcLogging
     DefaultDrawing = False
     Options = [dgTitles, dgIndicator, dgColumnResize, dgColLines, dgRowLines, dgTabs, dgRowSelect, dgAlwaysShowSelection, dgConfirmDelete, dgCancelOnExit]
     PopupMenu = popMenu
-    TabOrder = 15
+    TabOrder = 16
     TitleFont.Charset = DEFAULT_CHARSET
     TitleFont.Color = clWindowText
     TitleFont.Height = -11
@@ -88,20 +88,26 @@ object frmChainsaw: TfrmChainsaw
   end
   object stbStatus: TStatusBar
     Left = 0
-    Top = 556
-    Width = 623
+    Top = 544
+    Width = 615
     Height = 19
     Panels = <>
     SimplePanel = True
   end
   object memDetails: TRichEdit
     Left = 4
-    Top = 412
+    Top = 392
     Width = 613
     Height = 137
     Anchors = [akLeft, akRight, akBottom]
+    Font.Charset = ANSI_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -11
+    Font.Name = 'MS Sans Serif'
+    Font.Style = []
+    ParentFont = False
     ReadOnly = True
-    TabOrder = 16
+    TabOrder = 17
   end
   object cmbLevel: TComboBox
     Left = 160
@@ -109,7 +115,6 @@ object frmChainsaw: TfrmChainsaw
     Width = 89
     Height = 21
     Style = csDropDownList
-    ItemHeight = 13
     TabOrder = 5
     OnChange = FilterChange
   end
@@ -147,7 +152,6 @@ object frmChainsaw: TfrmChainsaw
     Width = 89
     Height = 21
     Style = csDropDownList
-    ItemHeight = 13
     ItemIndex = 0
     TabOrder = 9
     Text = 'contains'
@@ -164,7 +168,6 @@ object frmChainsaw: TfrmChainsaw
     Width = 89
     Height = 21
     Style = csDropDownList
-    ItemHeight = 13
     ItemIndex = 0
     TabOrder = 4
     Text = 'at least'
@@ -204,7 +207,7 @@ object frmChainsaw: TfrmChainsaw
     Width = 75
     Height = 21
     Anchors = [akTop, akRight]
-    Caption = '&Clear'
+    Caption = '&Clear Filter'
     TabOrder = 14
     OnClick = btnClearClick
   end
@@ -222,7 +225,6 @@ object frmChainsaw: TfrmChainsaw
     Width = 89
     Height = 21
     Style = csDropDownList
-    ItemHeight = 13
     ItemIndex = 0
     TabOrder = 11
     Text = 'contains'
@@ -256,7 +258,6 @@ object frmChainsaw: TfrmChainsaw
     Width = 89
     Height = 21
     Style = csDropDownList
-    ItemHeight = 13
     ItemIndex = 0
     TabOrder = 6
     Text = 'contains'
@@ -275,6 +276,16 @@ object frmChainsaw: TfrmChainsaw
     Caption = '&Ignore case'
     TabOrder = 8
     OnClick = FilterChange
+  end
+  object btnClearLog: TButton
+    Left = 540
+    Top = 52
+    Width = 75
+    Height = 21
+    Anchors = [akTop, akRight]
+    Caption = 'Clear Log'
+    TabOrder = 15
+    OnClick = mniClearClick
   end
   object mnuMain: TMainMenu
     Left = 148
@@ -295,7 +306,7 @@ object frmChainsaw: TfrmChainsaw
         Caption = '-'
       end
       object mniClear: TMenuItem
-        Caption = '&Clear'
+        Caption = '&Clear Log'
         OnClick = mniClearClick
       end
       object mniSep2: TMenuItem

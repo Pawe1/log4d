@@ -292,7 +292,7 @@ var
 begin
   Handler := TLogFileHandler.Create(DataSet);
   try
-    Reader                := CoSAXXMLReader.Create;
+    Reader                := Log4DXMl.CreateSaxReader;
     Reader.ContentHandler := Handler;
     Reader.ErrorHandler   := Handler;
     Reader.ParseURL(FileName);
